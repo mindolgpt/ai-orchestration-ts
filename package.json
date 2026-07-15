@@ -1,11 +1,18 @@
 {
-  "name": "aio-mcp",
-  "version": "0.1.0",
+  "name": "@mindol1004/aio-mcp",
+  "version": "2.0.0",
   "description": "AI Orchestration System - TypeScript rewrite",
   "type": "module",
   "main": "dist/cli.js",
   "bin": {
     "aio": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc && tsc-alias && node scripts/fix-imports.cjs",

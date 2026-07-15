@@ -1,0 +1,64 @@
+{
+  "name": "aio-mcp",
+  "version": "0.1.0",
+  "description": "AI Orchestration System - TypeScript rewrite",
+  "type": "module",
+  "main": "dist/cli.js",
+  "bin": {
+    "aio": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc && tsc-alias && node scripts/fix-imports.cjs",
+    "dev": "tsx watch src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "ai",
+    "orchestration",
+    "mcp",
+    "dag",
+    "ralph-loop"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@xenova/transformers": "^2.0.1",
+    "chalk": "^5.3.0",
+    "cli-table3": "^0.6.3",
+    "commander": "^12.0.0",
+    "faiss-node": "^0.5.1",
+    "ioredis": "^5.3.0",
+    "js-yaml": "^4.1.0",
+    "openai": "^4.28.0",
+    "ora": "^8.0.0",
+    "uuid": "^14.0.1",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.19.43",
+    "@types/uuid": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.64.0",
+    "@typescript-eslint/parser": "^8.64.0",
+    "eslint": "^8.0.0",
+    "tsc-alias": "^1.9.1",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "esbuild@0.21.5": true,
+    "faiss-node@0.5.1": true,
+    "sharp@0.32.6": true,
+    "protobufjs@7.6.5": true
+  }
+}

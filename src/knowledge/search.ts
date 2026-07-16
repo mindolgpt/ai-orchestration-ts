@@ -129,6 +129,7 @@ export class SemanticSearch {
   }
 
   async save(): Promise<void> {
+    await this.ensureIndex();
     try {
       const indexFile = path.join(this.indexDir, "index.faiss");
       const metaFile = path.join(this.indexDir, "meta.json");

@@ -3,7 +3,7 @@
 병렬 AI 오케스트레이션 MCP 서버 (`aio`).  
 세션 스폰, Task DAG, 지식/위키(RAG), Branch Hunt를 Cursor·Claude Code·OpenCode 등에서 사용할 수 있습니다.
 
-**Node.js >= 20** · 현재 버전 **2.3.0**
+**Node.js >= 20** · 현재 버전 **2.4.0**
 
 ## 설치 / 실행
 
@@ -12,6 +12,7 @@ npm install
 npm run build
 
 npx aio init                 # 3계층 vault (raw/wiki/schema) + 인덱스
+npx aio bootstrap-harness    # 도메인 하네스 (AGENTS.md, rules, hooks, MCP 설정)
 npx aio wiki-lint --fail     # wiki 구조 lint (CI)
 npx aio mcp-serve            # stdio MCP (Cursor 등)
 npx aio serve                # SSE MCP (기본 http://127.0.0.1:8910/sse)
@@ -326,11 +327,39 @@ OpenAI: `EMBEDDING_PROVIDER=openai` + `OPENAI_API_KEY`.
 | 명령 | 설명 |
 |------|------|
 | `aio init [--vault]` | 3계층 vault + schema + FAISS 시드 |
+| `aio bootstrap-harness` | wiki → 도메인 하네스 (AGENTS.md, Cursor rules/hooks, Claude/OpenCode MCP) |
 | `aio wiki-lint [--vault] [--fail]` | 구조 lint (CI용 `--fail`) |
 | `aio mcp-serve` / `aio serve` | stdio / SSE MCP |
 | `aio recall` / `aio status` / `aio example` | 검색·상태·데모 |
 
 ## MCP Tools
+
+### Harness (5) — **도메인 컨텍스트 자동화**
+
+`bootstrap_harness` · `bootstrap_domain` · `run_domain_loop` · `get_domain_profile` · `save_domain_profile`
+
+wiki 지식 → 프로젝트 하네스 일괄 생성:
+
+| 생성물 | 대상 |
+|--------|------|
+| `AGENTS.md` | 공통 (모든 에이전트) |
+| `.cursor/rules/aio-domain-harness.mdc` | Cursor |
+| `.cursor/hooks.json` + `hooks/aio-*.mjs` | Cursor (세션/프롬프트 시 wiki 컨텍스트 주입) |
+| `.cursor/mcp.json` | Cursor MCP (merge) |
+| `CLAUDE.md` + `.mcp.json` | Claude Code |
+| `opencode.json` | OpenCode |
+| `.codex/mcp.toml` | Codex CLI |
+| `.aio/domain-profile.yaml` | 도메인 프로필 |
+| `.aio/harness-context.json` | `bootstrap_domain` 캐시 (hook이 읽음) |
+
+**시작 순서**
+
+```bash
+aio init
+aio bootstrap-harness --domain ecommerce --backend spring-boot --frontend react
+# MCP 재시작 후
+# run_domain_loop({ task: "로그인 API 구현" })
+```
 
 ### Wiki (7)
 
@@ -386,6 +415,8 @@ OpenAI: `EMBEDDING_PROVIDER=openai` + `OPENAI_API_KEY`.
 ## 아키텍처
 
 ```
+src/harness/          # profile, context-pack, bootstrap, loop, templates
+src/mcp/tools/harness-tools.ts
 src/mcp/session-runtime.ts · inbox.ts · tools/*
 src/dag/engine.ts · checkpoint.ts
 src/ralph/loop.ts · verifier.ts

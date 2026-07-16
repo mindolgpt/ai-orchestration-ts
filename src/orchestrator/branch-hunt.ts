@@ -116,6 +116,8 @@ export class BranchHunt {
     minRank: number,
     gitignore: string[]
   ): Promise<Issue[] | null> {
+    if (process.env.AIO_DISABLE_RG === "1") return null;
+
     const patterns = ISSUE_PATTERNS.filter((p) => severityRank(p.severity) >= minRank);
     if (!patterns.length) return [];
 
@@ -147,6 +149,7 @@ export class BranchHunt {
           cwd: rootDir,
           windowsHide: true,
           maxBuffer: 4 * 1024 * 1024,
+          timeout: 8_000,
         });
         rgAvailable = true;
         for (const line of stdout.split("\n")) {

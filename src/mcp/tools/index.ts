@@ -4,3 +4,4 @@ export { registerDagTools } from "./dag-tools";
 export { registerBranchTools } from "./branch-tools";
 export { registerWikiTools } from "./wiki-tools";
 export { registerOpsTools } from "./ops-tools";
+export { registerHarnessTools } from "./harness-tools";

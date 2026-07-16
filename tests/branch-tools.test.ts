@@ -1,4 +1,6 @@
 /// <reference types="vitest/globals" />
+process.env.AIO_DISABLE_RG = "1";
+
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
@@ -41,6 +43,17 @@ function createMockServer() {
 }
 
 describe("BranchHunt scan", () => {
+  const prev = process.env.AIO_DISABLE_RG;
+
+  beforeEach(() => {
+    process.env.AIO_DISABLE_RG = "1";
+  });
+
+  afterEach(() => {
+    if (prev === undefined) delete process.env.AIO_DISABLE_RG;
+    else process.env.AIO_DISABLE_RG = prev;
+  });
+
   test("finds FIXME in real files", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "aio-branch-"));
     await fs.writeFile(path.join(dir, "a.ts"), "const x = 1;\n// FIXME: broken\n", "utf-8");

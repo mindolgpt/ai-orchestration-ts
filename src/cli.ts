@@ -31,6 +31,7 @@ import { lintWiki } from "@/knowledge/wiki-ops";
 import { MCPServer } from "@/mcp/server";
 import { DeepInterviewPlanner } from "@/orchestrator/planner";
 import { DAGOrchestrator } from "@/orchestrator/dag-orchestrator";
+import { bootstrapHarness } from "@/harness/bootstrap";
 import chalk from "chalk";
 import Table from "cli-table3";
 
@@ -39,7 +40,7 @@ const program = new Command();
 program
   .name("aio")
   .description("AI Orchestration System - 병렬 AI 오케스트레이션 CLI")
-  .version("2.1.0");
+  .version("2.4.0");
 
 program
   .command("init")
@@ -66,7 +67,67 @@ program
     console.log(`  ✓ 검색 인덱스: ${indexDir}`);
 
     console.log(chalk.green("\n초기화 완료!"));
+    console.log(chalk.dim("  다음: aio bootstrap-harness — 도메인 하네스(rules/hooks/AGENTS.md) 생성"));
   });
+
+program
+  .command("bootstrap-harness")
+  .option("--vault <path>", "Obsidian vault 경로")
+  .option("--force", "기존 하네스 파일 덮어쓰기", false)
+  .option(
+    "--targets <list>",
+    "cursor,claude,opencode,codex,windsurf,continue,all (쉼표 구분)",
+    "all"
+  )
+  .option("--domain <name>", "도메인 이름 (profile)")
+  .option("--description <text>", "도메인 설명")
+  .option("--backend <stack>", "예: spring-boot")
+  .option("--frontend <stack>", "예: react")
+  .description("wiki 기반 도메인 하네스 생성 (AGENTS.md, Cursor rules/hooks, MCP 설정)")
+  .action(
+    async (options: {
+      vault?: string;
+      force?: boolean;
+      targets?: string;
+      domain?: string;
+      description?: string;
+      backend?: string;
+      frontend?: string;
+    }) => {
+      const vaultPath = resolveVaultRoot(options.vault);
+      const vault = new ObsidianVault(vaultPath);
+      await vault.initialize();
+
+      const targets = options.targets
+        ?.split(",")
+        .map((t) => t.trim())
+        .filter(Boolean) as import("@/harness/types").HarnessTarget[];
+
+      const result = await bootstrapHarness(vault, {
+        targets: targets?.length ? targets : ["all"],
+        force: options.force === true,
+        profile: {
+          ...(options.domain ? { domain: options.domain } : {}),
+          ...(options.description ? { description: options.description } : {}),
+          stack: {
+            ...(options.backend ? { backend: options.backend } : {}),
+            ...(options.frontend ? { frontend: options.frontend } : {}),
+          },
+        },
+      });
+
+      console.log(chalk.bold.cyan("\n🔧 Domain harness bootstrap"));
+      console.log(`  Project: ${result.project_root}`);
+      console.log(`  Vault:   ${result.vault_root}`);
+      console.log(`  Targets: ${result.targets.join(", ")}`);
+      console.log(chalk.bold("\nFiles:"));
+      for (const f of result.files) {
+        console.log(`  [${f.action}] ${f.path}`);
+      }
+      console.log(chalk.bold.green("\nNext:"));
+      for (const s of result.next_steps) console.log(`  • ${s}`);
+    }
+  );
 
 program
   .command("wiki-lint")

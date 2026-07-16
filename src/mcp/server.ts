@@ -65,7 +65,7 @@ export class MCPServer {
     });
 
     this.server = new McpServer(
-      { name: "aio-orchestrator", version: "2.4.0" },
+      { name: "aio-orchestrator", version: "2.9.0" },
       { capabilities: { tools: {} } }
     );
 
@@ -87,8 +87,19 @@ export class MCPServer {
     );
     registerBranchTools(this.server, this.branchHunt, this.sessions, this.maxSessions, this.projectRoot);
     registerWikiTools(this.server, this.vault, this.search);
-    registerOpsTools(this.server, this.approval);
-    registerHarnessTools(this.server, this.vault, this.search, this.projectRoot);
+    registerOpsTools(this.server, this.approval, this.projectRoot);
+    registerHarnessTools(this.server, {
+      vault: this.vault,
+      search: this.search,
+      projectRoot: this.projectRoot,
+      sessions: this.sessions,
+      inbox: this.inbox,
+      maxSessions: this.maxSessions,
+      dagResults: this.dagResults,
+      planner: this.planner,
+      branchHunt: this.branchHunt,
+      approval: this.approval,
+    });
   }
 
   async runStdio(): Promise<void> {

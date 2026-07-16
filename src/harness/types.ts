@@ -60,6 +60,11 @@ export const DEFAULT_DOMAIN_PROFILE: DomainProfile = {
   harness: {
     force_bootstrap_before_code: true,
     suggested_mcp_tools: [
+      "aio_prompt",
+      "brainstorm_design",
+      "bootstrap_harness",
+      "design_architecture",
+      "seed_stack_playbooks",
       "bootstrap_domain",
       "query_wiki",
       "plan_task",

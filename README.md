@@ -3,7 +3,30 @@
 병렬 AI 오케스트레이션 MCP 서버 (`aio`).  
 세션 스폰, Task DAG, 지식/위키(RAG), Branch Hunt를 Cursor·Claude Code·OpenCode 등에서 사용할 수 있습니다.
 
-**Node.js >= 20** · 현재 버전 **2.4.0**
+**Node.js >= 20** · 현재 버전 **2.9.0**
+
+## 5분 온보딩 (어느 프로젝트든)
+
+새 레포에 aio-mcp를 붙일 때 이 순서를 따르세요. **~5분**이면 MCP + vault + 하네스까지 준비됩니다.
+
+| # | 명령 | 설명 |
+|---|------|------|
+| 1 | `npx -y @mindol1004/aio-mcp init` | `vault/` + 검색 인덱스 생성 |
+| 2 | `npx -y @mindol1004/aio-mcp bootstrap-harness` | AGENTS.md, Cursor rules/hooks, `mcp.json` |
+| 3 | Cursor MCP 연결 + **Reload** | `.cursor/mcp.json`에 `AIO_PROJECT_ROOT: "${workspaceFolder}"` |
+| 4 | `npx -y @mindol1004/aio-mcp doctor` | 설치·경로·vault·하네스 진단 |
+| 5 | wiki 3페이지+ (`ingest_source`) | 도메인 브레인스토밍·검색 품질 |
+| 6 | `aio aio-prompt "wiki lint" --execute` | 키워드 라우팅 스모크 테스트 |
+
+**진단 한 방에:** `aio doctor` — Node, `AIO_PROJECT_ROOT`, vault, wiki 수, 인덱스, 하네스 파일, MCP 설정, git, rg, 세션 런타임, 임베딩을 점검하고 **다음 할 일**을 알려줍니다.
+
+```bash
+aio doctor          # 사람이 읽기 좋은 리포트
+aio doctor --json   # CI/스크립트용
+aio doctor --fail   # fail 있으면 exit 1
+```
+
+MCP에서도: `run_doctor` 또는 `aio_prompt({ message: "프로젝트 진단", execute: true })`
 
 ## 설치 / 실행
 
@@ -328,15 +351,50 @@ OpenAI: `EMBEDDING_PROVIDER=openai` + `OPENAI_API_KEY`.
 |------|------|
 | `aio init [--vault]` | 3계층 vault + schema + FAISS 시드 |
 | `aio bootstrap-harness` | wiki → 도메인 하네스 (AGENTS.md, Cursor rules/hooks, Claude/OpenCode MCP) |
-| `aio wiki-lint [--vault] [--fail]` | 구조 lint (CI용 `--fail`) |
+| `aio seed-stacks` | 스택 플레이북 wiki 시드 (React/Next/Vue/Spring/Kotlin/Express/FastAPI/Go/Rust/… 35+) |
+| `aio design-architecture` | wiki + 스택 기반 아키텍처 설계 → `docs/architecture.md` |
+| `aio aio-prompt "<msg>"` | 자연어 라우팅 (`--execute`로 자동 실행) |
+| `aio doctor [--json] [--fail]` | 온보딩·헬스 진단 (5분 체크리스트) |
 | `aio mcp-serve` / `aio serve` | stdio / SSE MCP |
 | `aio recall` / `aio status` / `aio example` | 검색·상태·데모 |
 
 ## MCP Tools
 
-### Harness (5) — **도메인 컨텍스트 자동화**
+### Harness (11) — **키워드 자연어 라우팅 (전체 MCP)**
 
-`bootstrap_harness` · `bootstrap_domain` · `run_domain_loop` · `get_domain_profile` · `save_domain_profile`
+`aio_prompt` · `list_tool_keywords` · `bootstrap_harness` · `design_architecture` · … (36+ 툴 키워드 매칭)
+
+**정확한 문장 불필요** — 메시지에 키워드만 포함되면 라우팅:
+
+| 키워드 예 | 툴 |
+|-----------|-----|
+| wiki 검색, 위키 | `query_wiki` |
+| wiki lint | `lint_wiki` |
+| 하네스, harness | `bootstrap_harness` |
+| 아키텍처 | `design_architecture` |
+| 세션, spawn | `spawn_session` |
+| 인박스 | `check_inbox` |
+| plan, 계획 | `plan_task` |
+| TODO, scan | `scan_issues` |
+| 브레인스토밍, db 설계, 알고리즘 | `brainstorm_design` |
+
+**설계 브레인스토밍** (`brainstorm_design`): **개발 전 과정** — 기획·UX·디자인·도메인·아키텍처·DB·알고리즘·보안·테스트·DevOps·문서. wiki + 옵션 비교.
+
+| 키워드 예 | 렌즈 |
+|-----------|------|
+| 기획, PRD, MVP | planning |
+| UX, UI, 플로우 | ux |
+| 디자인 시스템, Figma | visual_design |
+| 장바구니, 도메인 | domain + technical |
+| 보안, 테스트, 배포 | security, testing, devops |
+
+```json
+aio_prompt({ "message": "wiki 검색 장바구니", "execute": true })
+```
+
+전체 키워드: `list_tool_keywords`
+
+**스택 플레이북** (`vault/wiki/stacks/`): React, Next.js, Vue, Nuxt, Angular, Svelte, Solid, Astro, Remix, Qwik, HTMX, React Native, Flutter, Swift iOS, Kotlin Android, Spring Boot, Kotlin Spring, Express, NestJS, Fastify, Hono, FastAPI, Django, Flask, Quarkus, Go Gin/Fiber, Rust Actix, .NET, Laravel, Rails, Phoenix, Deno Fresh, Scala Play, GraphQL Apollo, tRPC, TypeScript …
 
 wiki 지식 → 프로젝트 하네스 일괄 생성:
 
@@ -356,9 +414,11 @@ wiki 지식 → 프로젝트 하네스 일괄 생성:
 
 ```bash
 aio init
+aio seed-stacks                    # vault/wiki/stacks/* 플레이북
 aio bootstrap-harness --domain ecommerce --backend spring-boot --frontend react
-# MCP 재시작 후
-# run_domain_loop({ task: "로그인 API 구현" })
+# MCP 재시작 후 채팅에서:
+#   "하네스 구성해줘" / "아키텍처 설계해줘"  (aio_prompt)
+#   run_domain_loop({ task: "로그인 API 구현" })
 ```
 
 ### Wiki (7)
@@ -415,7 +475,7 @@ aio bootstrap-harness --domain ecommerce --backend spring-boot --frontend react
 ## 아키텍처
 
 ```
-src/harness/          # profile, context-pack, bootstrap, loop, templates
+src/harness/          # profile, context-pack, bootstrap, loop, templates, stack-playbooks, architecture, prompt-router
 src/mcp/tools/harness-tools.ts
 src/mcp/session-runtime.ts · inbox.ts · tools/*
 src/dag/engine.ts · checkpoint.ts

@@ -3,12 +3,19 @@ import { z } from "zod";
 import { ApprovalGate } from "@/orchestrator/approval";
 import { getEventLog } from "@/observability/events";
 import { listWorktrees, removeWorktree } from "@/orchestrator/worktree";
+import { runDoctor } from "@/doctor/check";
+import { resolveProjectRoot } from "@/knowledge/paths";
 
 function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
 }
 
-export function registerOpsTools(server: McpServer, approval: ApprovalGate): void {
+export function registerOpsTools(
+  server: McpServer,
+  approval: ApprovalGate,
+  projectRoot?: string
+): void {
+  const root = projectRoot || resolveProjectRoot();
   server.registerTool(
     "request_approval",
     {
@@ -72,6 +79,24 @@ export function registerOpsTools(server: McpServer, approval: ApprovalGate): voi
       description: "List git worktrees (aio session isolation)",
     },
     async () => json({ porcelain: await listWorktrees() })
+  );
+
+  server.registerTool(
+    "run_doctor",
+    {
+      description:
+        "Project health / onboarding diagnostic. Keywords: doctor, 진단, 헬스체크. Returns vault, harness, MCP, git, session runtime checks.",
+      inputSchema: z.object({
+        skip_embed_test: z.boolean().optional(),
+      }),
+    },
+    async (args) =>
+      json(
+        await runDoctor({
+          projectRoot: root,
+          skipEmbedTest: args.skip_embed_test === true,
+        })
+      )
   );
 
   server.registerTool(

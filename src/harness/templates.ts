@@ -1,6 +1,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { DomainProfile, HarnessTarget } from "@/harness/types";
+import { hookKeywordRules } from "@/harness/tool-keywords";
 
 export function projectAgentsMd(profile: DomainProfile): string {
   const stack = [
@@ -17,11 +18,31 @@ export function projectAgentsMd(profile: DomainProfile): string {
 
 ## Before any implementation
 
-1. Call MCP **\`bootstrap_domain\`** with the user's task (or **\`run_domain_loop\`** for full loop brief).
-2. Read returned wiki pages and **cite** \`[[page-title]]\` in your plan.
-3. Call **\`plan_task\`** for multi-step work; **\`execute_dag\`** when tasks are independent.
-4. After durable decisions, **\`file_back\`** into the wiki.
-5. Run **\`lint_wiki\`** when wiki structure may have changed.
+1. **Keyword routing**: any message with domain keywords (wiki, session, harness, dag, …) → call **\`aio_prompt({ message, execute: true })\`** — matches all MCP tools.
+2. Examples: \`wiki 검색 장바구니\`, \`세션 띄워 API 만들어\`, \`TODO 스캔\`, \`wiki lint\`, \`plan task 결제\`
+3. Call MCP **\`bootstrap_domain\`** with the user's task (or **\`run_domain_loop\`** for full loop brief).
+3. Read returned wiki pages and **cite** \`[[page-title]]\` in your plan.
+4. Call **\`plan_task\`** for multi-step work; **\`execute_dag\`** when tasks are independent.
+5. After durable decisions, **\`file_back\`** into the wiki.
+6. Run **\`lint_wiki\`** when wiki structure may have changed.
+
+## Natural-language (keyword) commands
+
+All tools route via **\`aio_prompt\`**. You do NOT need exact phrases like "하네스 구성해줘" — keywords are enough.
+
+| Keywords in message | Tool |
+|---------------------|------|
+| 하네스, harness, mcp 설정 | \`bootstrap_harness\` |
+| 아키텍처, architecture | \`design_architecture\` |
+| wiki 검색, 위키 | \`query_wiki\` |
+| wiki lint, 위키 점검 | \`lint_wiki\` |
+| 세션, spawn session | \`spawn_session\` |
+| inbox, 인박스 | \`check_inbox\` |
+| plan, 계획 | \`plan_task\` |
+| TODO, scan issues | \`scan_issues\` |
+| recall, 지식 검색 | \`recall_knowledge\` |
+
+Full list: \`list_tool_keywords\`
 
 ## Hard rules
 
@@ -57,10 +78,11 @@ You work on **${profile.domain}**. ${profile.description}
 
 ## Mandatory workflow
 
-1. **First tool call** for implementation tasks: \`bootstrap_domain\` with the user task (or \`run_domain_loop\`).
-2. Use wiki citations from the context pack. Bounded contexts in wiki are authoritative.
-3. Multi-step features: \`plan_task\` → \`execute_dag\` (use \`resume: true\` on retry).
-4. End with \`file_back\` for durable architecture decisions.
+1. **Keyword prompts**: call **\`aio_prompt({ message, execute: true })\`** when user message contains wiki/session/harness/dag keywords.
+2. **First tool call** for implementation tasks: \`bootstrap_domain\` with the user task (or \`run_domain_loop\`).
+3. Use wiki citations from the context pack. Bounded contexts in wiki are authoritative.
+4. Multi-step features: \`plan_task\` → \`execute_dag\` (use \`resume: true\` on retry).
+5. End with \`file_back\` for durable architecture decisions.
 
 ## Never
 
@@ -143,11 +165,20 @@ console.log(JSON.stringify({ additional_context: additional }));
 }
 
 export function cursorBeforePromptHook(): string {
+  const rules = hookKeywordRules()
+    .map((r) => ({
+      tool: r.tool,
+      re: r.sources.slice(0, 8).join("|"),
+    }))
+    .filter((r) => r.re.length > 0);
+
   return `#!/usr/bin/env node
 /**
- * aio-mcp beforeSubmitPrompt — remind agent to bootstrap wiki for implementation-like prompts
+ * aio-mcp beforeSubmitPrompt — keyword → tool routing hint for ALL MCP tools
  */
 import fs from "fs";
+
+const RULES = ${JSON.stringify(rules, null, 2)};
 
 let input = "";
 process.stdin.setEncoding("utf8");
@@ -161,16 +192,43 @@ try {
   prompt = input;
 }
 
-const impl = /\\b(구현|만들|작성|추가|리팩|refactor|implement|create|build|fix|api|spring|react)\\b/i;
+if (!prompt.trim()) {
+  console.log("{}");
+  process.exit(0);
+}
+
+let best = { tool: "", score: 0 };
+for (const rule of RULES) {
+  try {
+    const re = new RegExp(rule.re, "i");
+    if (re.test(prompt)) {
+      const score = rule.re.length;
+      if (score > best.score) best = { tool: rule.tool, score };
+    }
+  } catch {
+    /* invalid pattern */
+  }
+}
+
+const impl = /\\b(구현|만들|작성|추가|리팩|refactor|implement|create|build|fix|api)\\b/i;
 const cacheExists = fs.existsSync(".aio/harness-context.json");
 
-if (impl.test(prompt) && !cacheExists) {
-  console.log(
-    JSON.stringify({
-      additional_context:
-        "aio-mcp: Call bootstrap_domain (or run_domain_loop) BEFORE writing code. Load wiki context for this task.",
-    })
-  );
+let additional_context = "";
+
+if (best.tool) {
+  additional_context =
+    "aio-mcp keyword match → " +
+    best.tool +
+    ". Call aio_prompt({ message: <user prompt>, execute: true }) or call " +
+    best.tool +
+    " directly with extracted params.";
+} else if (impl.test(prompt) && !cacheExists) {
+  additional_context =
+    "aio-mcp: Call bootstrap_domain (or run_domain_loop) BEFORE writing code. Or aio_prompt with execute:true.";
+}
+
+if (additional_context) {
+  console.log(JSON.stringify({ additional_context }));
 } else {
   console.log("{}");
 }

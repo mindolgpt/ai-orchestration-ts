@@ -32,6 +32,12 @@ import { MCPServer } from "@/mcp/server";
 import { DeepInterviewPlanner } from "@/orchestrator/planner";
 import { DAGOrchestrator } from "@/orchestrator/dag-orchestrator";
 import { bootstrapHarness } from "@/harness/bootstrap";
+import { designArchitecture } from "@/harness/architecture";
+import { routePrompt } from "@/harness/prompt-router";
+import { createPromptExecutorDeps, executePromptRoute } from "@/harness/prompt-executor";
+import { seedStackPlaybooks, seedPatternPlaybooks } from "@/harness/seed-stacks";
+import { ALL_STACK_IDS } from "@/harness/stack-playbooks";
+import { runDoctor, ONBOARDING_CHECKLIST } from "@/doctor/check";
 import chalk from "chalk";
 import Table from "cli-table3";
 
@@ -40,7 +46,7 @@ const program = new Command();
 program
   .name("aio")
   .description("AI Orchestration System - 병렬 AI 오케스트레이션 CLI")
-  .version("2.4.0");
+  .version("2.9.0");
 
 program
   .command("init")
@@ -67,8 +73,55 @@ program
     console.log(`  ✓ 검색 인덱스: ${indexDir}`);
 
     console.log(chalk.green("\n초기화 완료!"));
-    console.log(chalk.dim("  다음: aio bootstrap-harness — 도메인 하네스(rules/hooks/AGENTS.md) 생성"));
+    console.log(chalk.dim("  다음: aio bootstrap-harness → aio doctor"));
   });
+
+program
+  .command("doctor")
+  .option("--vault <path>", "Obsidian vault 경로")
+  .option("--json", "JSON 출력", false)
+  .option("--fail", "fail/warn 있으면 exit 1 (CI)", false)
+  .option("--skip-embed-test", "임베딩 스모크 테스트 생략", false)
+  .description("프로젝트 온보딩·헬스 진단 (5분 체크리스트 검증)")
+  .action(
+    async (options: { vault?: string; json?: boolean; fail?: boolean; skipEmbedTest?: boolean }) => {
+      const report = await runDoctor({
+        vault: options.vault,
+        skipEmbedTest: options.skipEmbedTest === true,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(report, null, 2));
+      } else {
+        console.log(chalk.bold.cyan("\n🩺 aio doctor — onboarding & health"));
+        console.log(`  Package: @mindol1004/aio-mcp@${report.package_version}`);
+        console.log(`  Project: ${report.project_root}`);
+        console.log(`  Vault:   ${report.vault_root}`);
+        console.log(`  Status:  ${report.ok ? chalk.green("OK") : chalk.red("ISSUES")}\n`);
+
+        const icon = (s: string) =>
+          s === "ok" ? chalk.green("✓") : s === "warn" ? chalk.yellow("!") : chalk.red("✗");
+
+        for (const c of report.checks) {
+          console.log(`  ${icon(c.severity)} [${c.id}] ${c.message}`);
+          if (c.fix) console.log(chalk.dim(`      → ${c.fix}`));
+        }
+
+        console.log(chalk.bold("\n📋 5-minute onboarding"));
+        for (const item of ONBOARDING_CHECKLIST) {
+          console.log(`  ${item.step}. ${chalk.cyan(item.cmd)}`);
+          console.log(chalk.dim(`     ${item.note}`));
+        }
+
+        if (report.next_steps.length) {
+          console.log(chalk.bold.green("\nNext for this project:"));
+          for (const s of report.next_steps) console.log(`  • ${s}`);
+        }
+      }
+
+      if (options.fail && !report.ok) process.exitCode = 1;
+    }
+  );
 
 program
   .command("bootstrap-harness")
@@ -126,6 +179,161 @@ program
       }
       console.log(chalk.bold.green("\nNext:"));
       for (const s of result.next_steps) console.log(`  • ${s}`);
+    }
+  );
+
+program
+  .command("seed-stacks")
+  .option("--vault <path>", "Obsidian vault 경로")
+  .option("--stacks <list>", "특정 스택 id만 (쉼표 구분). 생략 시 전체")
+  .option("--no-patterns", "아키텍처 패턴 페이지 제외")
+  .description(`스택 플레이북 wiki 시드 (${ALL_STACK_IDS.length}개: React, Next, Vue, Spring, Kotlin, Express, FastAPI, Go, Rust, .NET, …)`)
+  .action(async (options: { vault?: string; stacks?: string; patterns?: boolean }) => {
+    const vaultPath = resolveVaultRoot(options.vault);
+    const vault = new ObsidianVault(vaultPath);
+    await vault.initialize();
+    const embedder = createEmbedder();
+    const search = new SemanticSearch(embedder, resolveIndexDir(vaultPath));
+    await search.load();
+
+    const stackIds = options.stacks?.split(",").map((s) => s.trim()).filter(Boolean);
+    const stacks = await seedStackPlaybooks(vault, search, stackIds);
+    const patterns =
+      options.patterns !== false ? await seedPatternPlaybooks(vault, search) : { seeded: [] };
+
+    console.log(chalk.bold.cyan("\n📚 Stack playbooks seeded"));
+    console.log(`  Seeded: ${stacks.seeded}, skipped: ${stacks.skipped}`);
+    console.log(`  Patterns: ${patterns.seeded.join(", ") || "(none)"}`);
+  });
+
+program
+  .command("design-architecture")
+  .option("--vault <path>", "Obsidian vault 경로")
+  .option("--intent <text>", "아키텍처 의도/프로젝트 설명")
+  .option("--frontend <stack>", "예: react")
+  .option("--backend <stack>", "예: spring-boot")
+  .option("--mobile <stack>", "예: flutter")
+  .option("--skip-questions", "Q&A 생략하고 바로 초안", false)
+  .option("--team-size <n>", "팀 규모")
+  .option("--deployment <mode>", "monolith|microservices|modular-monolith|serverless")
+  .option("--scale <s>", "mvp|growth|enterprise")
+  .option("--auth <model>", "JWT, OAuth2, …")
+  .description("wiki + 스택 플레이북 기반 아키텍처 설계 (docs/architecture.md)")
+  .action(
+    async (options: {
+      vault?: string;
+      intent?: string;
+      frontend?: string;
+      backend?: string;
+      mobile?: string;
+      skipQuestions?: boolean;
+      teamSize?: string;
+      deployment?: string;
+      scale?: string;
+      auth?: string;
+    }) => {
+      const vaultPath = resolveVaultRoot(options.vault);
+      const vault = new ObsidianVault(vaultPath);
+      await vault.initialize();
+      const embedder = createEmbedder();
+      const search = new SemanticSearch(embedder, resolveIndexDir(vaultPath));
+      await search.load();
+
+      const intent = options.intent || "프로젝트 아키텍처";
+      const result = await designArchitecture(vault, search, intent, {
+        frontend: options.frontend,
+        backend: options.backend,
+        mobile: options.mobile,
+        skip_questions: options.skipQuestions === true,
+        answers: {
+          team_size: options.teamSize,
+          deployment: options.deployment as import("@/harness/architecture").ArchitectureAnswers["deployment"],
+          scale: options.scale as import("@/harness/architecture").ArchitectureAnswers["scale"],
+          auth_model: options.auth,
+        },
+      });
+
+      console.log(chalk.bold.cyan("\n🏗️ Architecture design"));
+      console.log(`  Status: ${result.status}`);
+      console.log(`  Stacks: ${JSON.stringify(result.detected_stacks)}`);
+      if (result.status === "questions") {
+        console.log(chalk.yellow("\nPending questions:"));
+        for (const q of result.pending_questions) console.log(`  - [${q.id}] ${q.question}`);
+      } else {
+        console.log(`  Modules: ${result.modules.length}`);
+        if (result.docs_written?.length) {
+          console.log(chalk.green("\nWritten:"));
+          for (const p of result.docs_written) console.log(`  • ${p}`);
+        }
+      }
+      console.log(`\nNext: ${result.next_step}`);
+    }
+  );
+
+program
+  .command("aio-prompt <message>")
+  .option("--vault <path>", "Obsidian vault 경로")
+  .option("--execute", "키워드 매칭 후 자동 실행", false)
+  .option("--tool <id>", "툴 강제 지정 (키워드 무시)")
+  .option("--targets <list>", "harness targets (bootstrap 시)")
+  .option("--force", "harness 덮어쓰기", false)
+  .description("키워드 기반 자연어 라우팅 — wiki/세션/harness/dag 등 전체 MCP 툴")
+  .action(
+    async (
+      message: string,
+      options: {
+        vault?: string;
+        execute?: boolean;
+        tool?: string;
+        targets?: string;
+        force?: boolean;
+      }
+    ) => {
+      const route = options.tool
+        ? (await import("@/harness/prompt-router")).routePromptToTool(message, options.tool)
+        : routePrompt(message);
+
+      console.log(chalk.bold.cyan("\n💬 aio_prompt (keyword router)"));
+      console.log(`  Tool: ${route.tool} [${route.category || "-"}]`);
+      console.log(`  Score: ${route.score} (${(route.confidence * 100).toFixed(0)}%)`);
+      console.log(`  Keywords: ${route.matched_keywords.slice(0, 6).join(", ") || "(none)"}`);
+      if (route.alternatives?.length) {
+        console.log(
+          chalk.dim(
+            `  Alt: ${route.alternatives.map((a) => `${a.tool}(${a.score})`).join(", ")}`
+          )
+        );
+      }
+      console.log(`  Params: ${JSON.stringify(route.extracted_params)?.slice(0, 120)}…`);
+      console.log(`  Hint: ${route.agent_hint}`);
+
+      if (!options.execute) {
+        console.log(chalk.dim("\nDry-run. Add --execute to run."));
+        return;
+      }
+
+      const deps = createPromptExecutorDeps(options.vault);
+      await deps.vault.initialize();
+      await deps.search.load();
+
+      const targets = options.targets
+        ?.split(",")
+        .map((t) => t.trim())
+        .filter(Boolean) as import("@/harness/types").HarnessTarget[];
+
+      const exec = await executePromptRoute(deps, {
+        route,
+        message,
+        execute: true,
+        harness: { targets: targets?.length ? targets : undefined, force: options.force },
+      });
+
+      if (exec.executed) {
+        console.log(chalk.green(`\n✓ Executed ${exec.tool}`));
+        console.log(JSON.stringify(exec.result, null, 2).slice(0, 2000));
+      } else {
+        console.log(chalk.yellow(`\n✗ Not executed: ${exec.error || exec.hint}`));
+      }
     }
   );
 

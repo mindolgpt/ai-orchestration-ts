@@ -9,7 +9,7 @@ export * from "./seed-stacks";
 export * from "./prompt-router";
 export * from "./architecture";
 export * from "./tool-keywords";
-export * from "./brainstorm-types";
+export * from "./detect-target";
 export * from "./brainstorm-focus";
 export * from "./brainstorm";
 export * from "./prompt-executor";

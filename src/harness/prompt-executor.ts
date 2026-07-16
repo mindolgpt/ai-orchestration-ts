@@ -125,7 +125,7 @@ async function dispatchTool(
     case "bootstrap_harness":
       return bootstrapHarness(vault, {
         projectRoot,
-        targets: (harness?.targets as HarnessTarget[]) || ["all"],
+        targets: (harness?.targets as HarnessTarget[]) || undefined,
         force: harness?.force,
         profile: {
           description: String(p.message || p.intent || message),

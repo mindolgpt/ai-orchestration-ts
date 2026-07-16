@@ -1,6 +1,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import { DomainProfile, HarnessTarget } from "@/harness/types";
+import { DomainProfile } from "@/harness/types";
 import { hookKeywordRules } from "@/harness/tool-keywords";
 
 export function projectAgentsMd(profile: DomainProfile): string {
@@ -66,13 +66,8 @@ Re-run \`bootstrap_harness\` after changing \`.aio/domain-profile.yaml\`.
 `;
 }
 
-export function cursorRuleMdc(profile: DomainProfile): string {
-  return `---
-description: aio-mcp domain wiki harness — always bootstrap wiki context before coding
-alwaysApply: true
----
-
-# Domain Wiki Harness (aio-mcp)
+function harnessRuleBody(profile: DomainProfile): string {
+  return `# Domain Wiki Harness (aio-mcp)
 
 You work on **${profile.domain}**. ${profile.description}
 
@@ -92,6 +87,34 @@ You work on **${profile.domain}**. ${profile.description}
 
 Stack: ${profile.stack?.backend || "—"} / ${profile.stack?.frontend || "—"}
 `;
+}
+
+export function cursorRuleMdc(profile: DomainProfile): string {
+  return `---
+description: aio-mcp domain wiki harness — always bootstrap wiki context before coding
+alwaysApply: true
+---
+
+${harnessRuleBody(profile)}`;
+}
+
+export function windsurfRuleMd(profile: DomainProfile): string {
+  return `---
+trigger: always_on
+description: aio-mcp domain wiki harness — bootstrap wiki context before coding
+---
+
+${harnessRuleBody(profile)}`;
+}
+
+export function continueRuleMd(profile: DomainProfile): string {
+  return `---
+name: aio-mcp Domain Harness
+alwaysApply: true
+description: aio-mcp domain wiki harness — bootstrap wiki context before coding
+---
+
+${harnessRuleBody(profile)}`;
 }
 
 export function claudeMd(profile: DomainProfile): string {
@@ -164,21 +187,24 @@ console.log(JSON.stringify({ additional_context: additional }));
 `;
 }
 
-export function cursorBeforePromptHook(): string {
+function keywordHookRulesJson(): string {
   const rules = hookKeywordRules()
     .map((r) => ({
       tool: r.tool,
       re: r.sources.slice(0, 8).join("|"),
     }))
     .filter((r) => r.re.length > 0);
+  return JSON.stringify(rules, null, 2);
+}
 
+export function cursorBeforePromptHook(): string {
   return `#!/usr/bin/env node
 /**
  * aio-mcp beforeSubmitPrompt — keyword → tool routing hint for ALL MCP tools
  */
 import fs from "fs";
 
-const RULES = ${JSON.stringify(rules, null, 2)};
+const RULES = ${keywordHookRulesJson()};
 
 let input = "";
 process.stdin.setEncoding("utf8");
@@ -235,6 +261,416 @@ if (additional_context) {
 `;
 }
 
+export function claudeSettingsJson(): string {
+  return JSON.stringify(
+    {
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/aio-session-start.mjs"',
+              },
+            ],
+          },
+        ],
+        UserPromptSubmit: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/aio-before-prompt.mjs"',
+              },
+            ],
+          },
+        ],
+      },
+    },
+    null,
+    2
+  );
+}
+
+export function claudeSessionStartHook(): string {
+  return `#!/usr/bin/env node
+/**
+ * aio-mcp SessionStart — inject cached domain context (Claude Code hook format)
+ */
+import fs from "fs";
+import path from "path";
+
+const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+const cache = path.join(root, ".aio", "harness-context.json");
+const profilePath = path.join(root, ".aio", "domain-profile.yaml");
+
+let additionalContext = "## aio-mcp harness\\n\\n";
+additionalContext += "Before coding, call MCP bootstrap_domain or run_domain_loop for the user task.\\n";
+additionalContext += "Follow AGENTS.md and vault wiki bounded contexts.\\n";
+
+try {
+  if (fs.existsSync(cache)) {
+    const pack = JSON.parse(fs.readFileSync(cache, "utf8"));
+    additionalContext += "\\n### Cached domain context\\n";
+    additionalContext += "Task: " + (pack.task || "(none)") + "\\n";
+    if (pack.pages?.length) {
+      additionalContext += "Wiki pages: " + pack.pages.map((p) => p.title).join(", ") + "\\n";
+    }
+    if (pack.harness_prompt) {
+      additionalContext += "\\n" + pack.harness_prompt.slice(0, 2000);
+    }
+  }
+} catch {
+  /* ignore */
+}
+
+try {
+  if (fs.existsSync(profilePath)) {
+    additionalContext += "\\n(domain-profile.yaml present at .aio/)";
+  }
+} catch {
+  /* ignore */
+}
+
+console.log(
+  JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "SessionStart",
+      additionalContext,
+    },
+  })
+);
+`;
+}
+
+export function claudeBeforePromptHook(): string {
+  return `#!/usr/bin/env node
+/**
+ * aio-mcp UserPromptSubmit — keyword → tool routing hint (Claude Code hook format)
+ */
+import fs from "fs";
+
+const RULES = ${keywordHookRulesJson()};
+
+let input = "";
+process.stdin.setEncoding("utf8");
+for await (const chunk of process.stdin) input += chunk;
+
+let prompt = "";
+try {
+  const data = JSON.parse(input || "{}");
+  prompt = data.prompt || data.text || "";
+} catch {
+  prompt = input;
+}
+
+if (!prompt.trim()) {
+  console.log("{}");
+  process.exit(0);
+}
+
+let best = { tool: "", score: 0 };
+for (const rule of RULES) {
+  try {
+    const re = new RegExp(rule.re, "i");
+    if (re.test(prompt)) {
+      const score = rule.re.length;
+      if (score > best.score) best = { tool: rule.tool, score };
+    }
+  } catch {
+    /* invalid pattern */
+  }
+}
+
+const impl = /\\b(구현|만들|작성|추가|리팩|refactor|implement|create|build|fix|api)\\b/i;
+const cacheExists = fs.existsSync(".aio/harness-context.json");
+
+let additionalContext = "";
+
+if (best.tool) {
+  additionalContext =
+    "aio-mcp keyword match → " +
+    best.tool +
+    ". Call aio_prompt({ message: <user prompt>, execute: true }) or call " +
+    best.tool +
+    " directly with extracted params.";
+} else if (impl.test(prompt) && !cacheExists) {
+  additionalContext =
+    "aio-mcp: Call bootstrap_domain (or run_domain_loop) BEFORE writing code. Or aio_prompt with execute:true.";
+}
+
+if (additionalContext) {
+  console.log(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "UserPromptSubmit",
+        additionalContext,
+      },
+    })
+  );
+} else {
+  console.log("{}");
+}
+`;
+}
+
+/** Codex CLI hooks — same JSON contract as Claude Code (developers.openai.com/codex/hooks) */
+export function codexHooksJson(): string {
+  return JSON.stringify(
+    {
+      hooks: {
+        SessionStart: [
+          {
+            matcher: "startup|resume",
+            hooks: [
+              {
+                type: "command",
+                command: 'node ".codex/hooks/aio-session-start.mjs"',
+                statusMessage: "aio-mcp session context",
+              },
+            ],
+          },
+        ],
+        UserPromptSubmit: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: 'node ".codex/hooks/aio-before-prompt.mjs"',
+                statusMessage: "aio-mcp keyword routing",
+              },
+            ],
+          },
+        ],
+      },
+    },
+    null,
+    2
+  );
+}
+
+/** Windsurf Cascade hooks — pre_user_prompt (docs.devin.ai/desktop/cascade/hooks) */
+export function windsurfHooksJson(): string {
+  return JSON.stringify(
+    {
+      hooks: {
+        pre_user_prompt: [
+          {
+            command: "node .windsurf/hooks/aio-before-prompt.mjs",
+            show_output: false,
+          },
+        ],
+      },
+    },
+    null,
+    2
+  );
+}
+
+export function windsurfBeforePromptHook(): string {
+  return `#!/usr/bin/env node
+/**
+ * aio-mcp pre_user_prompt — keyword routing hint (Windsurf Cascade)
+ * Primary standing instructions: .windsurf/rules + AGENTS.md
+ */
+import fs from "fs";
+
+const RULES = ${keywordHookRulesJson()};
+
+let input = "";
+process.stdin.setEncoding("utf8");
+for await (const chunk of process.stdin) input += chunk;
+
+let prompt = "";
+try {
+  const data = JSON.parse(input || "{}");
+  if (data.agent_action_name === "pre_user_prompt") {
+    prompt = data.tool_info?.user_prompt || "";
+  } else {
+    prompt = data.prompt || data.text || "";
+  }
+} catch {
+  prompt = input;
+}
+
+if (!prompt.trim()) process.exit(0);
+
+let best = { tool: "", score: 0 };
+for (const rule of RULES) {
+  try {
+    const re = new RegExp(rule.re, "i");
+    if (re.test(prompt)) {
+      const score = rule.re.length;
+      if (score > best.score) best = { tool: rule.tool, score };
+    }
+  } catch {
+    /* invalid pattern */
+  }
+}
+
+const impl = /\\b(구현|만들|작성|추가|리팩|refactor|implement|create|build|fix|api)\\b/i;
+const cacheExists = fs.existsSync(".aio/harness-context.json");
+
+let hint = "";
+if (best.tool) {
+  hint =
+    "aio-mcp keyword match → " +
+    best.tool +
+    ". Call aio_prompt({ message, execute: true }) or call " +
+    best.tool +
+    " directly.";
+} else if (impl.test(prompt) && !cacheExists) {
+  hint = "aio-mcp: Call bootstrap_domain (or run_domain_loop) BEFORE writing code.";
+}
+
+if (hint) {
+  console.error(hint);
+}
+process.exit(0);
+`;
+}
+
+/** Continue CLI hooks — Claude Code-compatible (extensions/cli hooks, 2026) */
+export function continueSettingsJson(): string {
+  return JSON.stringify(
+    {
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: "node .continue/hooks/aio-session-start.mjs",
+              },
+            ],
+          },
+        ],
+        UserPromptSubmit: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: "node .continue/hooks/aio-before-prompt.mjs",
+              },
+            ],
+          },
+        ],
+      },
+    },
+    null,
+    2
+  );
+}
+
+/** OpenCode plugin — auto-loaded from .opencode/plugins/ (opencode.ai/docs/plugins) */
+export function opencodeHarnessPlugin(): string {
+  return `/**
+ * aio-mcp OpenCode plugin — keyword routing via chat.message + system transform
+ * AGENTS.md remains the primary V2 instruction source.
+ */
+import fs from "fs";
+import path from "path";
+
+const RULES = ${keywordHookRulesJson()};
+
+let lastUserPrompt = "";
+
+function keywordHint(prompt) {
+  if (!prompt?.trim()) return "";
+  let best = { tool: "", score: 0 };
+  for (const rule of RULES) {
+    try {
+      const re = new RegExp(rule.re, "i");
+      if (re.test(prompt)) {
+        const score = rule.re.length;
+        if (score > best.score) best = { tool: rule.tool, score };
+      }
+    } catch {
+      /* invalid */
+    }
+  }
+  const impl = /\\b(구현|만들|작성|추가|리팩|refactor|implement|create|build|fix|api)\\b/i;
+  const cacheExists = fs.existsSync(path.join(process.cwd(), ".aio", "harness-context.json"));
+  if (best.tool) {
+    return (
+      "aio-mcp keyword match → " +
+      best.tool +
+      ". Call aio_prompt({ message, execute: true }) or call " +
+      best.tool +
+      " directly."
+    );
+  }
+  if (impl.test(prompt) && !cacheExists) {
+    return "aio-mcp: Call bootstrap_domain (or run_domain_loop) BEFORE writing code.";
+  }
+  return "";
+}
+
+function readCacheSnippet(root) {
+  try {
+    const cache = path.join(root, ".aio", "harness-context.json");
+    if (!fs.existsSync(cache)) return "";
+    const pack = JSON.parse(fs.readFileSync(cache, "utf8"));
+    let s = "Cached task: " + (pack.task || "(none)");
+    if (pack.pages?.length) {
+      s += ". Wiki: " + pack.pages.map((p) => p.title).join(", ");
+    }
+    return s;
+  } catch {
+    return "";
+  }
+}
+
+function extractText(message) {
+  if (!message) return "";
+  if (typeof message.content === "string") return message.content;
+  const parts = message.parts || message.content || [];
+  if (Array.isArray(parts)) {
+    return parts
+      .filter((p) => p && (p.type === "text" || p.type === "input_text"))
+      .map((p) => p.text || p.content || "")
+      .join("\\n");
+  }
+  return "";
+}
+
+export const AioHarnessPlugin = async ({ directory, worktree }) => {
+  const root = worktree || directory || process.cwd();
+
+  return {
+    "chat.message": async (input) => {
+      const text = extractText(input?.message);
+      if (text) lastUserPrompt = text;
+    },
+    "experimental.chat.system.transform": async (input, output) => {
+      const system = Array.isArray(output?.system)
+        ? [...output.system]
+        : Array.isArray(input?.system)
+          ? [...input.system]
+          : [];
+
+      system.push(
+        "aio-mcp harness: Before coding call MCP bootstrap_domain or run_domain_loop. Follow AGENTS.md and vault wiki."
+      );
+
+      const hint = keywordHint(lastUserPrompt);
+      if (hint) system.push(hint);
+
+      const cache = readCacheSnippet(root);
+      if (cache) system.push(cache);
+
+      if (output && typeof output === "object") {
+        output.system = system;
+      }
+      return { system };
+    },
+  };
+};
+
+export default AioHarnessPlugin;
+`;
+}
+
 export function mcpJsonCursor(projectRoot: string): string {
   return JSON.stringify(
     {
@@ -276,6 +712,7 @@ export function opencodeJson(projectRoot: string): string {
   return JSON.stringify(
     {
       $schema: "https://opencode.ai/config.json",
+      instructions: ["AGENTS.md"],
       mcp: {
         "aio-mcp": {
           type: "local",
@@ -340,11 +777,4 @@ export async function mergeJsonFile(
   existing[key] = { ...bucket, ...incoming };
   await fs.writeFile(filePath, JSON.stringify(existing, null, 2), "utf-8");
   return "updated";
-}
-
-export function resolveTargets(targets?: HarnessTarget[]): HarnessTarget[] {
-  if (!targets?.length || targets.includes("all")) {
-    return ["cursor", "claude", "opencode", "codex", "windsurf", "continue"];
-  }
-  return targets;
 }

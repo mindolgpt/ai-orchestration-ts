@@ -105,6 +105,11 @@ export interface BootstrapHarnessResult {
   project_root: string;
   vault_root: string;
   targets: HarnessTarget[];
+  target_detection?: {
+    target: HarnessTarget;
+    source: string;
+    hint?: string;
+  };
   files: BootstrapFileResult[];
   profile_path: string;
   next_steps: string[];

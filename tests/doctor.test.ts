@@ -42,7 +42,31 @@ describe("runDoctor", () => {
     expect(report.project_root).toBe(root);
   });
 
-  test("onboarding checklist has 6 steps", () => {
+  test("flags foreign harness files", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aio-doc-for-"));
+    const vaultPath = path.join(root, "vault");
+    const vault = new ObsidianVault(vaultPath);
+    await vault.initialize();
+    await fs.writeFile(path.join(root, "AGENTS.md"), "# a", "utf-8");
+    await fs.writeFile(path.join(root, "CLAUDE.md"), "# c", "utf-8");
+    await fs.mkdir(path.join(root, ".cursor", "rules"), { recursive: true });
+    await fs.writeFile(path.join(root, ".cursor", "rules", "aio-domain-harness.mdc"), "r", "utf-8");
+    await fs.mkdir(path.join(vaultPath, ".index"), { recursive: true });
+    await fs.writeFile(path.join(vaultPath, ".index", "meta.json"), "{}", "utf-8");
+    await fs.writeFile(path.join(vaultPath, ".index", "index.faiss"), "", "utf-8");
+
+    const report = await runDoctor({
+      projectRoot: root,
+      vault: vaultPath,
+      skipEmbedTest: true,
+    });
+    expect(report.foreign_harness_files.some((f) => f.rel === "CLAUDE.md")).toBe(true);
+    expect(report.checks.some((c) => c.id.startsWith("foreign_"))).toBe(true);
+  });
+});
+
+describe("ONBOARDING_CHECKLIST", () => {
+  test("has 6 steps", () => {
     expect(ONBOARDING_CHECKLIST.length).toBe(6);
   });
 });

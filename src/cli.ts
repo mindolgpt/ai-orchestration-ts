@@ -46,7 +46,7 @@ const program = new Command();
 program
   .name("aio")
   .description("AI Orchestration System - 병렬 AI 오케스트레이션 CLI")
-  .version("2.9.0");
+  .version("2.10.0");
 
 program
   .command("init")
@@ -97,6 +97,9 @@ program
         console.log(`  Package: @mindol1004/aio-mcp@${report.package_version}`);
         console.log(`  Project: ${report.project_root}`);
         console.log(`  Vault:   ${report.vault_root}`);
+        console.log(
+          `  Harness: ${report.harness_target} (${report.harness_target_source})${report.harness_target_hint ? ` — ${report.harness_target_hint}` : ""}`
+        );
         console.log(`  Status:  ${report.ok ? chalk.green("OK") : chalk.red("ISSUES")}\n`);
 
         const icon = (s: string) =>
@@ -111,6 +114,14 @@ program
         for (const item of ONBOARDING_CHECKLIST) {
           console.log(`  ${item.step}. ${chalk.cyan(item.cmd)}`);
           console.log(chalk.dim(`     ${item.note}`));
+        }
+
+        if (report.foreign_harness_files.length) {
+          console.log(chalk.yellow(`\nForeign harness files (${report.foreign_harness_files.length} — other AI tools):`));
+          for (const f of report.foreign_harness_files) {
+            console.log(`  • [${f.target}] ${f.rel} — ${f.label}`);
+          }
+          console.log(chalk.dim("  Safe to delete if you only use " + report.harness_target));
         }
 
         if (report.next_steps.length) {
@@ -129,8 +140,8 @@ program
   .option("--force", "기존 하네스 파일 덮어쓰기", false)
   .option(
     "--targets <list>",
-    "cursor,claude,opencode,codex,windsurf,continue,all (쉼표 구분)",
-    "all"
+    "cursor,claude,opencode,codex,windsurf,continue,all — 생략 시 AI 도구 자동 감지(1개)",
+    undefined
   )
   .option("--domain <name>", "도메인 이름 (profile)")
   .option("--description <text>", "도메인 설명")
@@ -157,7 +168,7 @@ program
         .filter(Boolean) as import("@/harness/types").HarnessTarget[];
 
       const result = await bootstrapHarness(vault, {
-        targets: targets?.length ? targets : ["all"],
+        targets: targets?.length ? targets : undefined,
         force: options.force === true,
         profile: {
           ...(options.domain ? { domain: options.domain } : {}),
@@ -171,6 +182,11 @@ program
 
       console.log(chalk.bold.cyan("\n🔧 Domain harness bootstrap"));
       console.log(`  Project: ${result.project_root}`);
+      if (result.target_detection) {
+        console.log(
+          `  Detected: ${result.target_detection.target} (${result.target_detection.source})`
+        );
+      }
       console.log(`  Vault:   ${result.vault_root}`);
       console.log(`  Targets: ${result.targets.join(", ")}`);
       console.log(chalk.bold("\nFiles:"));

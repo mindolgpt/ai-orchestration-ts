@@ -7,6 +7,12 @@ import { promisify } from "util";
 import { resolveProjectRoot, resolveVaultRoot, resolveIndexDir } from "@/knowledge/paths";
 import { ObsidianVault } from "@/knowledge/vault";
 import { listSessionRuntimes } from "@/mcp/session-runtime";
+import {
+  detectHarnessTarget,
+  findForeignHarnessFiles,
+  HarnessTargetDetection,
+} from "@/harness/detect-target";
+import { HarnessTarget } from "@/harness/types";
 
 const execFileAsync = promisify(execFile);
 
@@ -25,6 +31,10 @@ export interface DoctorReport {
   project_root: string;
   vault_root: string;
   package_version: string;
+  harness_target: HarnessTarget;
+  harness_target_source: HarnessTargetDetection["source"];
+  harness_target_hint?: string;
+  foreign_harness_files: Array<{ target: HarnessTarget; rel: string; label: string }>;
   checks: DoctorCheck[];
   next_steps: string[];
   onboarding_minutes: number;
@@ -176,6 +186,35 @@ export async function runDoctor(opts?: {
     next_steps.push("aio bootstrap-harness");
   }
 
+  // Harness target auto-detect + foreign files
+  const targetDetection = await detectHarnessTarget(projectRoot);
+  const active = targetDetection.target as Exclude<HarnessTarget, "all">;
+  checks.push({
+    id: "harness_target",
+    severity: targetDetection.source === "fallback" ? "warn" : "ok",
+    message: `Active harness target: ${active} (${targetDetection.source})`,
+    detail: targetDetection.hint,
+    fix:
+      targetDetection.source === "fallback"
+        ? "Set AIO_HARNESS_TARGET=cursor|claude|... in MCP env"
+        : undefined,
+  });
+
+  const foreign = await findForeignHarnessFiles(projectRoot, active);
+  for (const f of foreign) {
+    checks.push({
+      id: `foreign_${f.target}_${f.rel.replace(/[^\w]/g, "_")}`,
+      severity: "warn",
+      message: `Unnecessary for ${active}: ${f.rel} (${f.label}, ${f.target})`,
+      fix: `Delete or re-run bootstrap_harness without targets:['all']`,
+    });
+  }
+  if (foreign.length) {
+    next_steps.push(
+      `Remove ${foreign.length} foreign harness file(s) for other tools, or keep if you use multiple AI clients`
+    );
+  }
+
   // MCP config
   const mcpPath = path.join(projectRoot, ".cursor", "mcp.json");
   const mcp = await readJsonSafe<{ mcpServers?: Record<string, { command?: string; args?: string[] }> }>(
@@ -302,6 +341,10 @@ export async function runDoctor(opts?: {
     project_root: projectRoot,
     vault_root: vaultRoot,
     package_version: pkgVersion,
+    harness_target: targetDetection.target,
+    harness_target_source: targetDetection.source,
+    harness_target_hint: targetDetection.hint,
+    foreign_harness_files: foreign,
     checks,
     next_steps: [...new Set(next_steps)],
     onboarding_minutes: 5,

@@ -11,6 +11,16 @@ import {
   cursorHooksJson,
   cursorSessionStartHook,
   cursorBeforePromptHook,
+  claudeSettingsJson,
+  claudeSessionStartHook,
+  claudeBeforePromptHook,
+  codexHooksJson,
+  windsurfRuleMd,
+  windsurfHooksJson,
+  windsurfBeforePromptHook,
+  continueRuleMd,
+  continueSettingsJson,
+  opencodeHarnessPlugin,
   mcpJsonCursor,
   mcpJsonClaude,
   opencodeJson,
@@ -18,8 +28,8 @@ import {
   windsurfMcpJson,
   continueMcpYaml,
   mergeJsonFile,
-  resolveTargets,
 } from "@/harness/templates";
+import { resolveTargetsAsync } from "@/harness/detect-target";
 import {
   BootstrapFileResult,
   BootstrapHarnessResult,
@@ -64,7 +74,7 @@ export async function bootstrapHarness(
   opts: BootstrapHarnessOptions = {}
 ): Promise<BootstrapHarnessResult> {
   const projectRoot = path.resolve(opts.projectRoot || resolveProjectRoot());
-  const targets = resolveTargets(opts.targets);
+  const { targets, detection } = await resolveTargetsAsync(opts.targets, projectRoot);
   const force = opts.force === true;
   const files: BootstrapFileResult[] = [];
 
@@ -152,6 +162,32 @@ export async function bootstrapHarness(
     files.push(
       await writeFile(path.join(projectRoot, "CLAUDE.md"), claudeMd(profile), force, "claude")
     );
+    const claudeHooksDir = path.join(projectRoot, ".claude", "hooks");
+    await fs.mkdir(claudeHooksDir, { recursive: true });
+    files.push(
+      await writeFile(
+        path.join(projectRoot, ".claude", "settings.json"),
+        claudeSettingsJson(),
+        force,
+        "claude"
+      )
+    );
+    files.push(
+      await writeFile(
+        path.join(claudeHooksDir, "aio-session-start.mjs"),
+        claudeSessionStartHook(),
+        force,
+        "claude"
+      )
+    );
+    files.push(
+      await writeFile(
+        path.join(claudeHooksDir, "aio-before-prompt.mjs"),
+        claudeBeforePromptHook(),
+        force,
+        "claude"
+      )
+    );
     const mcpPath = path.join(projectRoot, ".mcp.json");
     const mcpAction = await mergeJsonFile(
       mcpPath,
@@ -169,13 +205,58 @@ export async function bootstrapHarness(
       "mcp"
     );
     files.push({ path: ocPath, action: ocAction, target: "opencode" });
+    try {
+      const raw = await fs.readFile(ocPath, "utf-8");
+      const existing = JSON.parse(raw) as Record<string, unknown>;
+      const instructions = existing.instructions as string[] | undefined;
+      if (!instructions?.includes("AGENTS.md")) {
+        existing.instructions = [...(instructions || []), "AGENTS.md"];
+        await fs.writeFile(ocPath, JSON.stringify(existing, null, 2), "utf-8");
+      }
+    } catch {
+      /* mergeJsonFile created file with instructions already */
+    }
+    files.push(
+      await writeFile(
+        path.join(projectRoot, ".opencode", "plugins", "aio-harness.mjs"),
+        opencodeHarnessPlugin(),
+        force,
+        "opencode"
+      )
+    );
   }
 
   if (targets.includes("codex")) {
+    const codexHooksDir = path.join(projectRoot, ".codex", "hooks");
+    await fs.mkdir(codexHooksDir, { recursive: true });
     files.push(
       await writeFile(
         path.join(projectRoot, ".codex", "mcp.toml"),
         codexToml(posixRoot),
+        force,
+        "codex"
+      )
+    );
+    files.push(
+      await writeFile(
+        path.join(projectRoot, ".codex", "hooks.json"),
+        codexHooksJson(),
+        force,
+        "codex"
+      )
+    );
+    files.push(
+      await writeFile(
+        path.join(codexHooksDir, "aio-session-start.mjs"),
+        claudeSessionStartHook(),
+        force,
+        "codex"
+      )
+    );
+    files.push(
+      await writeFile(
+        path.join(codexHooksDir, "aio-before-prompt.mjs"),
+        claudeBeforePromptHook(),
         force,
         "codex"
       )
@@ -191,6 +272,32 @@ export async function bootstrapHarness(
   }
 
   if (targets.includes("windsurf")) {
+    const wsHooksDir = path.join(projectRoot, ".windsurf", "hooks");
+    await fs.mkdir(wsHooksDir, { recursive: true });
+    files.push(
+      await writeFile(
+        path.join(projectRoot, ".windsurf", "rules", "aio-domain-harness.md"),
+        windsurfRuleMd(profile),
+        force,
+        "windsurf"
+      )
+    );
+    files.push(
+      await writeFile(
+        path.join(projectRoot, ".windsurf", "hooks.json"),
+        windsurfHooksJson(),
+        force,
+        "windsurf"
+      )
+    );
+    files.push(
+      await writeFile(
+        path.join(wsHooksDir, "aio-before-prompt.mjs"),
+        windsurfBeforePromptHook(),
+        force,
+        "windsurf"
+      )
+    );
     files.push(
       await writeFile(
         path.join(projectRoot, ".windsurf", "mcp_config.json"),
@@ -202,6 +309,40 @@ export async function bootstrapHarness(
   }
 
   if (targets.includes("continue")) {
+    const contHooksDir = path.join(projectRoot, ".continue", "hooks");
+    await fs.mkdir(contHooksDir, { recursive: true });
+    files.push(
+      await writeFile(
+        path.join(projectRoot, ".continue", "rules", "aio-domain-harness.md"),
+        continueRuleMd(profile),
+        force,
+        "continue"
+      )
+    );
+    files.push(
+      await writeFile(
+        path.join(projectRoot, ".continue", "settings.json"),
+        continueSettingsJson(),
+        force,
+        "continue"
+      )
+    );
+    files.push(
+      await writeFile(
+        path.join(contHooksDir, "aio-session-start.mjs"),
+        claudeSessionStartHook(),
+        force,
+        "continue"
+      )
+    );
+    files.push(
+      await writeFile(
+        path.join(contHooksDir, "aio-before-prompt.mjs"),
+        claudeBeforePromptHook(),
+        force,
+        "continue"
+      )
+    );
     files.push(
       await writeFile(
         path.join(projectRoot, ".continue", "aio-mcp.yaml"),
@@ -247,12 +388,19 @@ export async function bootstrapHarness(
     project_root: projectRoot,
     vault_root: vault.rootPath,
     targets,
+    target_detection: {
+      target: detection.target,
+      source: detection.source,
+      hint: detection.hint,
+    },
     files,
     profile_path: profilePath,
     next_steps: [
-      "Restart MCP in your AI client (Cursor: reload MCP)",
-      "For Cursor: ensure hooks are enabled in settings",
-      "Natural language: say '하네스 구성해줘' or '아키텍처 설계해줘' (aio_prompt routes automatically)",
+      "Restart MCP in your AI client (Cursor: reload MCP; Claude/Codex: restart session)",
+      "Codex: trust project + review hooks via /hooks",
+      "OpenCode: restart after .opencode/plugins/ is created",
+      "For Cursor/Claude/Codex/Continue CLI: ensure hooks are enabled",
+      "Natural language: say '하네스 구성해줘' (auto-detects your AI tool; use targets:['all'] for every client)",
       "Call seed_stack_playbooks once to populate vault/wiki/stacks/",
       "Call bootstrap_domain({ task: \"your feature\" }) before coding",
       "Edit .aio/domain-profile.yaml for stack/domain tweaks; re-run bootstrap_harness",

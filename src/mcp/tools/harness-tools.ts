@@ -138,7 +138,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     "bootstrap_harness",
     {
       description:
-        "Generate cross-tool domain harness (AGENTS.md, Cursor rules+hooks, MCP configs). Keywords: 하네스, harness setup.",
+        "Generate domain harness for detected AI tool (default: auto-detect 1 client). Use targets:['all'] for every client. Keywords: 하네스, harness setup.",
       inputSchema: z.object({
         targets: z
           .array(
@@ -157,7 +157,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
       const stacks = args.prompt ? detectStacksFromText(args.prompt) : {};
       const result = await bootstrapHarness(vault, {
         projectRoot: root,
-        targets: (args.targets as HarnessTarget[]) || ["all"],
+        targets: (args.targets as HarnessTarget[]) || undefined,
         force: args.force,
         profile: {
           ...(args.domain ? { domain: args.domain } : {}),

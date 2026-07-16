@@ -3,7 +3,7 @@
 병렬 AI 오케스트레이션 MCP 서버 (`aio`).  
 세션 스폰, Task DAG, 지식/위키(RAG), Branch Hunt를 Cursor·Claude Code·OpenCode 등에서 사용할 수 있습니다.
 
-**Node.js >= 20** · 현재 버전 **2.9.0**
+**Node.js >= 20** · 현재 버전 **2.10.0**
 
 ## 5분 온보딩 (어느 프로젝트든)
 
@@ -12,13 +12,13 @@
 | # | 명령 | 설명 |
 |---|------|------|
 | 1 | `npx -y @mindol1004/aio-mcp init` | `vault/` + 검색 인덱스 생성 |
-| 2 | `npx -y @mindol1004/aio-mcp bootstrap-harness` | AGENTS.md, Cursor rules/hooks, `mcp.json` |
+| 2 | `npx -y @mindol1004/aio-mcp bootstrap-harness` | **자동 감지 1개 도구**만 (Cursor 등). 전체: `--targets all` |
 | 3 | Cursor MCP 연결 + **Reload** | `.cursor/mcp.json`에 `AIO_PROJECT_ROOT: "${workspaceFolder}"` |
 | 4 | `npx -y @mindol1004/aio-mcp doctor` | 설치·경로·vault·하네스 진단 |
 | 5 | wiki 3페이지+ (`ingest_source`) | 도메인 브레인스토밍·검색 품질 |
 | 6 | `aio aio-prompt "wiki lint" --execute` | 키워드 라우팅 스모크 테스트 |
 
-**진단 한 방에:** `aio doctor` — Node, `AIO_PROJECT_ROOT`, vault, wiki 수, 인덱스, 하네스 파일, MCP 설정, git, rg, 세션 런타임, 임베딩을 점검하고 **다음 할 일**을 알려줍니다.
+**진단 한 방에:** `aio doctor` — Node, `AIO_PROJECT_ROOT`, vault, wiki 수, 인덱스, 하네스 파일, **활성 AI 도구 감지**, **다른 도구용 불필요 파일** 알림, MCP 설정, git, rg, 세션 런타임, 임베딩을 점검합니다.
 
 ```bash
 aio doctor          # 사람이 읽기 좋은 리포트

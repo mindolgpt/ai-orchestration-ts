@@ -74,6 +74,29 @@ describe("bootstrapHarness", () => {
     expect(await fs.stat(path.join(root, "CLAUDE.md"))).toBeDefined();
     expect(await fs.stat(path.join(root, ".aio", "domain-profile.yaml"))).toBeDefined();
   });
+
+  test("creates per-target rules and hooks", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aio-harness-all-"));
+    const vault = new ObsidianVault(path.join(root, "vault"));
+    await vault.initialize();
+
+    const result = await bootstrapHarness(vault, {
+      projectRoot: root,
+      targets: ["claude", "windsurf", "continue", "codex", "opencode"],
+      force: true,
+      profile: { domain: "ecommerce", description: "test" },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(await fs.stat(path.join(root, ".claude", "settings.json"))).toBeDefined();
+    expect(await fs.stat(path.join(root, ".claude", "hooks", "aio-before-prompt.mjs"))).toBeDefined();
+    expect(await fs.stat(path.join(root, ".windsurf", "rules", "aio-domain-harness.md"))).toBeDefined();
+    expect(await fs.stat(path.join(root, ".windsurf", "hooks.json"))).toBeDefined();
+    expect(await fs.stat(path.join(root, ".continue", "rules", "aio-domain-harness.md"))).toBeDefined();
+    expect(await fs.stat(path.join(root, ".continue", "settings.json"))).toBeDefined();
+    expect(await fs.stat(path.join(root, ".codex", "hooks.json"))).toBeDefined();
+    expect(await fs.stat(path.join(root, ".opencode", "plugins", "aio-harness.mjs"))).toBeDefined();
+  });
 });
 
 describe("domain context pack", () => {

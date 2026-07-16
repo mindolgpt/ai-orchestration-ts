@@ -1,12 +1,17 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { KnowledgeDoc } from "@/knowledge/types";
+import { toPosixPath } from "@/knowledge/paths";
 
 export class ObsidianVault {
   private root: string;
 
   constructor(vaultPath: string) {
     this.root = path.resolve(vaultPath);
+  }
+
+  get rootPath(): string {
+    return this.root;
   }
 
   async initialize(): Promise<void> {
@@ -24,8 +29,9 @@ export class ObsidianVault {
   }
 
   resolvePath(relative: string): string {
-    const clean = relative.replace(/\.md$/, "");
-    return path.join(this.root, `${clean}.md`);
+    const clean = toPosixPath(relative).replace(/\.md$/, "");
+    const parts = clean.split("/").filter(Boolean);
+    return `${path.join(this.root, ...parts)}.md`;
   }
 
   async writeNote(
@@ -34,7 +40,8 @@ export class ObsidianVault {
     tags?: string[],
     links?: string[]
   ): Promise<string> {
-    const fullPath = this.resolvePath(relativePath);
+    const posixRel = toPosixPath(relativePath).replace(/\.md$/, "");
+    const fullPath = this.resolvePath(posixRel);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
 
     const header: string[] = ["---"];
@@ -46,11 +53,11 @@ export class ObsidianVault {
 
     let body = content;
     if (links?.length) {
-      body += "\n## Related Notes\n\n" + links.map(l => `- [[${l}]]`).join("\n");
+      body += "\n## Related Notes\n\n" + links.map((l) => `- [[${l}]]`).join("\n");
     }
 
     await fs.writeFile(fullPath, header.join("\n") + "\n" + body, "utf-8");
-    await this.updateMoc(path.basename(relativePath, ".md"), relativePath);
+    await this.updateMoc(path.posix.basename(posixRel), posixRel);
     return fullPath;
   }
 
@@ -65,21 +72,29 @@ export class ObsidianVault {
 
   async listNotes(prefix = ""): Promise<string[]> {
     const results: string[] = [];
+    const normalizedPrefix = toPosixPath(prefix);
+
     const scan = async (dir: string) => {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
+          if (entry.name === ".index") continue;
           await scan(full);
         } else if (entry.name.endsWith(".md")) {
-          const rel = path.relative(this.root, full);
-          if (!prefix || rel.startsWith(prefix)) {
+          const rel = toPosixPath(path.relative(this.root, full));
+          if (!normalizedPrefix || rel.startsWith(normalizedPrefix)) {
             results.push(rel);
           }
         }
       }
     };
-    await scan(this.root);
+
+    try {
+      await scan(this.root);
+    } catch {
+      return [];
+    }
     return results.sort();
   }
 
@@ -99,7 +114,7 @@ export class ObsidianVault {
     const content = await this.readNote(relativePath);
     if (!content) return [];
     const match = content.match(/tags:\s*\[(.+?)\]/);
-    return match ? match[1].split(",").map(t => t.trim()) : [];
+    return match ? match[1].split(",").map((t) => t.trim()) : [];
   }
 
   private async updateMoc(title: string, link: string): Promise<void> {
@@ -124,20 +139,20 @@ export class ObsidianVault {
     const tags = await this.getTags(relativePath);
     const links = this.extractLinks(content);
     const createdMatch = content.match(/created:\s*(.+)/);
-    
+
     return {
-      path: relativePath,
-      title: path.basename(relativePath, ".md"),
+      path: toPosixPath(relativePath),
+      title: path.posix.basename(toPosixPath(relativePath).replace(/\.md$/, "")),
       content: this.stripFrontmatter(content),
       tags,
       links,
-      createdAt: createdMatch?.[1] || new Date().toISOString()
+      createdAt: createdMatch?.[1] || new Date().toISOString(),
     };
   }
 
   private extractLinks(content: string): string[] {
     const matches = content.matchAll(/\[\[([^\]]+)\]\]/g);
-    return Array.from(matches, m => m[1]);
+    return Array.from(matches, (m) => m[1]);
   }
 
   private stripFrontmatter(content: string): string {

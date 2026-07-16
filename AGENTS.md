@@ -114,6 +114,8 @@ src/
 
 - 부모-자식 세션 간 컨텍스트 **불공유** — 독립 세션으로 컨텍스트 오염 방지
 - `@xenova/transformers` + `faiss-node`는 첫 실행 시 모델 다운로드 필요 (느림)
+- Obsidian vault는 **열린 프로젝트의 `vault/`** 에 생성 (기본: `$AIO_PROJECT_ROOT/vault` 또는 `<cwd 프로젝트>/vault`)
+- Cursor MCP 설정에 `"AIO_PROJECT_ROOT": "${workspaceFolder}"` 를 넣어야 home이 아닌 워크스페이스에 vault가 생김
 - Obsidian vault는 GUI 없이 파일 기반으로 동작 (MCP로 읽기/쓰기)
 - `.env` 파일로 설정 오버라이드 가능
 

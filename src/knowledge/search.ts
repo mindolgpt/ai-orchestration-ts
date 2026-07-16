@@ -1,54 +1,16 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { KnowledgeDoc, SearchResult } from "@/knowledge/types";
-
-interface FaissSearchResult {
-  distances: Float32Array;
-  indices: Int32Array;
-}
-
-interface FaissIndex {
-  add(vector: Float32Array | number[]): void;
-  search(query: Float32Array, k: number): FaissSearchResult;
-  write(filename: string): void | Promise<void>;
-}
-
-let FaissConstructor: new (...args: unknown[]) => FaissIndex;
-
-async function loadFaiss(): Promise<void> {
-  if (FaissConstructor) return;
-  try {
-    const faiss = await import("faiss-node");
-    FaissConstructor = faiss.IndexFlatIP as unknown as new (...args: unknown[]) => FaissIndex;
-  } catch {
-    FaissConstructor = class MockIndex {
-      vectors: Float32Array[] = [];
-      add(v: Float32Array | number[]) { this.vectors.push(Float32Array.from(v)); }
-      search(q: Float32Array | number[], k: number) {
-        const qVec = Float32Array.from(q);
-        const distances = this.vectors.map(v => cosineSimilarity(qVec, v));
-        const indices = distances.map((_, i) => i).sort((a, b) => distances[b] - distances[a]).slice(0, k);
-        return { distances: new Float32Array(indices.map(i => distances[i])), indices: new Int32Array(indices) };
-      }
-      write() {}
-      static read() { return new MockIndex(); }
-    };
-  }
-}
-
-function cosineSimilarity(a: Float32Array, b: Float32Array): number {
-  let dot = 0, na = 0, nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
-  }
-  return dot / (Math.sqrt(na) * Math.sqrt(nb));
-}
-
+import {
+  FaissIndex,
+  FaissIndexFlatIPCtor,
+  cosineSimilarity,
+  loadFaissIndexFlatIP,
+} from "@/knowledge/faiss";
 
 export class SemanticSearch {
   private index: FaissIndex | null = null;
+  private IndexFlatIP: FaissIndexFlatIPCtor | null = null;
   private documents: KnowledgeDoc[] = [];
   private indexDir: string;
 
@@ -61,19 +23,18 @@ export class SemanticSearch {
 
   private async ensureIndex(): Promise<void> {
     if (this.index) return;
-    await loadFaiss();
+    this.IndexFlatIP = await loadFaissIndexFlatIP();
     await fs.mkdir(this.indexDir, { recursive: true });
 
     const indexFile = path.join(this.indexDir, "index.faiss");
     const metaFile = path.join(this.indexDir, "meta.json");
 
     try {
-      const { IndexFlatIP } = await import("faiss-node");
-      this.index = IndexFlatIP.read(indexFile) as unknown as FaissIndex;
+      this.index = this.IndexFlatIP.read(indexFile);
       const meta = JSON.parse(await fs.readFile(metaFile, "utf-8")) as KnowledgeDoc[];
       this.documents = meta;
     } catch {
-      this.index = new (FaissConstructor!)(this.embedder.dimension);
+      this.index = new this.IndexFlatIP(this.embedder.dimension);
       this.documents = [];
     }
   }
@@ -90,7 +51,14 @@ export class SemanticSearch {
     } catch (err) {
       console.error("Index add failed:", err);
     }
-    this.documents.push({ path: docPath, title, tags: tags || [], links: [], content, createdAt: new Date().toISOString() });
+    this.documents.push({
+      path: docPath,
+      title,
+      tags: tags || [],
+      links: [],
+      content,
+      createdAt: new Date().toISOString(),
+    });
   }
 
   async search(query: string, topK: number = 10): Promise<SearchResult[]> {
@@ -112,7 +80,7 @@ export class SemanticSearch {
           title: doc.title,
           score: distances[i],
           snippet: doc.content.slice(0, 200),
-          tags: doc.tags
+          tags: doc.tags,
         });
       }
       return results;
@@ -121,7 +89,13 @@ export class SemanticSearch {
       for (const doc of this.documents) {
         const docEmb = await this.embedder.embed([doc.content]);
         const score = cosineSimilarity(qVec, new Float32Array(docEmb[0]));
-        results.push({ path: doc.path, title: doc.title, score, snippet: doc.content.slice(0, 200), tags: doc.tags });
+        results.push({
+          path: doc.path,
+          title: doc.title,
+          score,
+          snippet: doc.content.slice(0, 200),
+          tags: doc.tags,
+        });
       }
       results.sort((a, b) => b.score - a.score);
       return results.slice(0, topK);

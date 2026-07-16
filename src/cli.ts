@@ -3,23 +3,30 @@
 import { Command, OptionValues } from "commander";
 
 interface InitOptions extends OptionValues {
-  vault: string;
+  vault?: string;
   model?: string;
 }
 
 interface RecallOptions extends OptionValues {
   topK: string;
-  vault: string;
+  vault?: string;
 }
 
 interface ServeOptions extends OptionValues {
   host: string;
   port: string;
   maxSessions: string;
+  vault?: string;
+}
+
+interface McpServeOptions extends OptionValues {
+  vault?: string;
+  maxSessions: string;
 }
 import { ObsidianVault } from "@/knowledge/vault";
 import { createEmbedder } from "@/knowledge/embedder";
 import { SemanticSearch } from "@/knowledge/search";
+import { resolveIndexDir, resolveProjectRoot, resolveVaultRoot } from "@/knowledge/paths";
 import { MCPServer } from "@/mcp/server";
 import { DeepInterviewPlanner } from "@/orchestrator/planner";
 import { DAGOrchestrator } from "@/orchestrator/dag-orchestrator";
@@ -31,27 +38,30 @@ const program = new Command();
 program
   .name("aio")
   .description("AI Orchestration System - 병렬 AI 오케스트레이션 CLI")
-  .version("2.0.1");
+  .version("2.0.2");
 
 program
   .command("init")
-  .option("--vault <path>", "Obsidian vault 경로", "./vault")
+  .option("--vault <path>", "Obsidian vault 경로 (기본: <프로젝트>/vault)")
   .option("--model <model>", "임베딩 모델", "text-embedding-3-small")
   .description("프로젝트 초기화 - vault 생성, 임베딩 인덱스 준비")
   .action(async (options: InitOptions) => {
     console.log(chalk.bold.cyan("\n🚀 AI Orchestration System 초기화"));
 
-    const vaultPath = options.vault;
+    const projectRoot = resolveProjectRoot();
+    const vaultPath = resolveVaultRoot(options.vault);
     const vault = new ObsidianVault(vaultPath);
     await vault.initialize();
+    console.log(`  ✓ Project: ${projectRoot}`);
     console.log(`  ✓ Vault: ${vaultPath}`);
 
     const embedder = createEmbedder();
     console.log(`  ✓ 임베딩 모델: ${process.env.EMBEDDING_MODEL || "auto"}`);
 
-    const search = new SemanticSearch(embedder, `${vaultPath}/.index`);
+    const indexDir = resolveIndexDir(vaultPath);
+    const search = new SemanticSearch(embedder, indexDir);
     await search.save();
-    console.log(`  ✓ 검색 인덱스: ${vaultPath}/.index`);
+    console.log(`  ✓ 검색 인덱스: ${indexDir}`);
 
     console.log(chalk.green("\n초기화 완료!"));
   });
@@ -59,11 +69,12 @@ program
 program
   .command("recall <query>")
   .option("--top-k <n>", "검색 결과 수", "10")
-  .option("--vault <path>", "Obsidian vault 경로", "./vault")
+  .option("--vault <path>", "Obsidian vault 경로 (기본: <프로젝트>/vault)")
   .description("시맨틱 검색 (/recall) - 지식 베이스에서 의미 기반 검색")
   .action(async (query: string, options: RecallOptions) => {
+    const vaultPath = resolveVaultRoot(options.vault);
     const embedder = createEmbedder();
-    const search = new SemanticSearch(embedder, `${options.vault}/.index`);
+    const search = new SemanticSearch(embedder, resolveIndexDir(vaultPath));
     await search.load();
     
     const results = await search.search(query, parseInt(options.topK));
@@ -85,34 +96,48 @@ program
   .option("--host <host>", "MCP 서버 호스트", "127.0.0.1")
   .option("--port <port>", "MCP 서버 포트", "8910")
   .option("--max-sessions <n>", "최대 병렬 세션", "5")
+  .option("--vault <path>", "Obsidian vault 경로 (기본: <프로젝트>/vault)")
   .description("SSE 기반 MCP 서버 실행 (외부 MCP 클라이언트용)")
   .action(async (options: ServeOptions) => {
-    const mcp = new MCPServer(parseInt(options.maxSessions));
+    const mcp = new MCPServer({
+      maxSessions: parseInt(options.maxSessions),
+      vaultPath: options.vault,
+    });
     console.log(chalk.bold.cyan(`\n🔌 MCP 서버 시작 (SSE) - http://${options.host}:${options.port}/sse`));
     console.log(`  최대 병렬 세션: ${options.maxSessions}`);
+    console.log(`  Vault: ${mcp.vaultRoot}`);
     console.log("  종료: Ctrl+C");
     await mcp.runSSE(options.host, parseInt(options.port));
   });
 
 program
   .command("mcp-serve")
-  .description("stdio 기반 MCP 서버 실행 (OpenCode 연결용)")
-  .action(async () => {
-    const server = new MCPServer();
+  .option("--vault <path>", "Obsidian vault 경로 (기본: <프로젝트>/vault)")
+  .option("--max-sessions <n>", "최대 병렬 세션", "5")
+  .description("stdio 기반 MCP 서버 실행 (Cursor/OpenCode 연결용)")
+  .action(async (options: McpServeOptions) => {
+    const server = new MCPServer({
+      maxSessions: parseInt(options.maxSessions),
+      vaultPath: options.vault,
+    });
     await server.runStdio();
   });
 
 program
   .command("status")
+  .option("--vault <path>", "Obsidian vault 경로 (기본: <프로젝트>/vault)")
   .description("시스템 상태 확인")
-  .action(async () => {
-    const vault = new ObsidianVault("./vault");
+  .action(async (options: { vault?: string }) => {
+    const projectRoot = resolveProjectRoot();
+    const vaultPath = resolveVaultRoot(options.vault);
+    const vault = new ObsidianVault(vaultPath);
     await vault.initialize();
     const notes = await vault.listNotes();
 
     const table = new Table({ head: ["컴포넌트", "상태", "비고"] });
-    table.push(["Vault", "✓", `${notes.length}개 문서`]);
-    table.push(["검색 인덱스", "-", "aio init 필요"]);
+    table.push(["Project", "✓", projectRoot]);
+    table.push(["Vault", "✓", `${vaultPath} (${notes.length}개 문서)`]);
+    table.push(["검색 인덱스", "✓", resolveIndexDir(vaultPath)]);
     console.log(table.toString());
   });
 

@@ -129,11 +129,19 @@ opencode mcp debug aio       # aio MCP 디버깅
 ```json
 {
   "mcpServers": {
-    "aio": { "command": "npx", "args": ["aio", "mcp-serve"] }
+    "aio-mcp": {
+      "command": "npx",
+      "args": ["-y", "@mindol1004/aio-mcp", "mcp-serve"],
+      "env": {
+        "AIO_PROJECT_ROOT": "${workspaceFolder}"
+      }
+    }
   }
 }
 ```
 
+Vault는 **현재 열린 프로젝트**의 `<workspace>/vault` 에 생성됩니다.
+(`AIO_PROJECT_ROOT` / `AIO_VAULT_PATH` / `OBSIDIAN_VAULT_PATH` 로 오버라이드 가능)
 ## Core concepts
 
 1. **지식 축적** — Obsidian vault + 로컬 FAISS 임베딩 (`@xenova/transformers`, 외부 API 불필요)
@@ -147,6 +155,7 @@ opencode mcp debug aio       # aio MCP 디버깅
 
 - 부모-자식 세션 간 컨텍스트 **불공유** — 독립 세션으로 컨텍스트 오염 방지
 - `@xenova/transformers` + `faiss-node`는 첫 실행 시 모델 다운로드 필요 (느림)
+- Obsidian vault는 **열린 프로젝트의 `vault/`** 에 생성 (`AIO_PROJECT_ROOT=${workspaceFolder}` 권장)
 - Obsidian vault는 GUI 없이 파일 기반으로 동작 (MCP로 읽기/쓰기)
 - `.env` 파일로 설정 오버라이드 가능
 

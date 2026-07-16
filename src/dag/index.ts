@@ -1,3 +1,6 @@
 export * from "./types";
 export * from "./dag";
 export { DAGExecutor } from "./engine";
+export type { DAGExecuteResult, DAGExecuteOptions, TaskRunner, DAGRunStatus } from "./engine";
+export { saveCheckpoint, loadCheckpoint, clearCheckpoint } from "./checkpoint";
+export type { DAGCheckpoint } from "./checkpoint";

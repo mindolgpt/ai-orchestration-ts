@@ -22,4 +22,5 @@ export interface Issue {
   severity: "low" | "medium" | "high" | "critical";
   resolved: boolean;
   resolution?: string;
+  sessionId?: string;
 }

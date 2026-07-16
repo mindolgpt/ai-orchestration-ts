@@ -2,145 +2,133 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ObsidianVault } from "@/knowledge/vault";
 import { SemanticSearch } from "@/knowledge/search";
+import {
+  fileBack,
+  getWikiSchema,
+  ingestRaw,
+  ingestSource,
+  lintWiki,
+  queryWiki,
+  updateWikiPage,
+} from "@/knowledge/wiki-ops";
+
+function jsonResult(data: unknown) {
+  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+}
 
 export function registerWikiTools(
   server: McpServer,
   vault: ObsidianVault,
   search: SemanticSearch
 ): void {
-  server.registerTool("ingest_source", {
-    description: "Create/update a wiki page (one concept per call)",
-    inputSchema: z.object({ title: z.string(), content: z.string(), tags: z.array(z.string()).optional(), source_path: z.string().optional() }),
-  }, async (args) => {
-    await vault.initialize();
-    const safeName = args.title.toLowerCase().replace(/[^a-z0-9가-힣]+/g, "-").replace(/^-|-$/g, "") || "untitled";
-    const wikiPath = `wiki/${safeName}`;
-    const existingContent = await vault.readNote(wikiPath);
-    await search.load();
+  server.registerTool(
+    "get_wiki_schema",
+    {
+      description:
+        "Read the vault wiki schema (AGENTS.md). Call this first when maintaining the wiki so you act as a disciplined wiki maintainer, not a generic chatbot.",
+    },
+    async () => jsonResult(await getWikiSchema(vault))
+  );
 
-    const related = await search.search(args.title, 5);
-    const relatedLinks = related
-      .filter(r => r.path !== wikiPath)
-      .slice(0, 3)
-      .map(r => r.title);
-
-    const allTags = [...new Set([...(args.tags || []), "wiki", ...(args.source_path ? ["source"] : [])])];
-
-    const noteContent = [
-      `> **Source:** ${args.source_path || "direct input"}`,
-      `> **Ingested:** ${new Date().toISOString().slice(0, 10)}`,
-      "",
-      existingContent ? "> **Updated** — previous version replaced\n" : "",
-      args.content,
-      "",
-      relatedLinks.length ? "## Related Pages\n\n" + relatedLinks.map(l => `- [[${l}]]`).join("\n") : ""
-    ].filter(Boolean).join("\n");
-
-    await vault.writeNote(wikiPath, noteContent, allTags, relatedLinks);
-    await search.addDocument(wikiPath, args.title, args.content, allTags);
-    await search.save();
-
-    await updateIndex(vault, safeName, args.title, allTags);
-    await updateLog(vault, "ingest", args.title, args.source_path);
-
-    return { content: [{ type: "text" as const, text: JSON.stringify({
-      wiki_page: wikiPath,
-      title: args.title,
-      tags: allTags,
-      related_pages: relatedLinks,
-      is_update: !!existingContent,
-      source: args.source_path || null
-    }) }] };
-  });
-
-  server.registerTool("query_wiki", {
-    description: "Search wiki pages with full content",
-    inputSchema: z.object({ query: z.string(), top_k: z.number().optional() }),
-  }, async (args) => {
-    await search.load();
-    const results = await search.search(args.query, args.top_k ?? 5);
-
-    const fullPages = await Promise.all(
-      results.map(async (r) => {
-        const fullContent = await vault.readNote(r.path);
-        return { path: r.path, title: r.title, score: r.score, snippet: r.snippet, tags: r.tags, full_content: fullContent || r.snippet };
-      })
-    );
-
-    return { content: [{ type: "text" as const, text: JSON.stringify({ query: args.query, page_count: fullPages.length, pages: fullPages }) }] };
-  });
-
-  server.registerTool("lint_wiki", {
-    description: "Check wiki health: orphans, coverage",
-  }, async () => {
-    await vault.initialize();
-    const allPages = await vault.listNotes("wiki/");
-    const pageSet = new Set(allPages);
-
-    const allContents = new Map<string, string>();
-    for (const p of allPages) {
-      const content = await vault.readNote(p);
-      if (content) allContents.set(p, content);
-    }
-
-    const orphans: string[] = [];
-    const linkedTo: Map<string, string[]> = new Map();
-    for (const p of allPages) linkedTo.set(p, []);
-
-    for (const [p, content] of allContents) {
-      const linkMatches = content.matchAll(/\[\[([^\]]+)\]\]/g);
-      for (const m of linkMatches) {
-        const target = m[1];
-        const targetPath = `wiki/${target.toLowerCase().replace(/[^a-z0-9가-힣]+/g, "-").replace(/^-|-$/g, "")}.md`;
-        if (pageSet.has(targetPath)) {
-          const existing = linkedTo.get(targetPath) || [];
-          existing.push(p);
-          linkedTo.set(targetPath, existing);
-        }
+  server.registerTool(
+    "ingest_raw",
+    {
+      description:
+        "Store an immutable original document under vault/raw/. Never modify raw later. Prefer this before ingest_source for durable knowledge.",
+      inputSchema: z.object({
+        title: z.string(),
+        content: z.string(),
+        source_uri: z.string().optional(),
+        id: z.string().optional(),
+      }),
+    },
+    async (args) => {
+      try {
+        return jsonResult(await ingestRaw(vault, args));
+      } catch (err) {
+        return jsonResult({ error: err instanceof Error ? err.message : String(err) });
       }
     }
+  );
 
-    for (const p of allPages) {
-      const inbound = linkedTo.get(p) || [];
-      if (inbound.length === 0 && !p.endsWith("/index.md")) {
-        orphans.push(p);
+  server.registerTool(
+    "ingest_source",
+    {
+      description:
+        "Create/update ONE wiki concept page. Workflow: (1) get_wiki_schema (2) ingest_raw for originals (3) ingest_source per concept (4) update_wiki_page for related entities (5) confirm index.md + log.md. Do not put multiple concepts in one call.",
+      inputSchema: z.object({
+        title: z.string(),
+        content: z.string(),
+        tags: z.array(z.string()).optional(),
+        raw_id: z.string().optional(),
+        source_path: z.string().optional(),
+        summary: z.string().optional(),
+      }),
+    },
+    async (args) => jsonResult(await ingestSource(vault, search, args))
+  );
+
+  server.registerTool(
+    "update_wiki_page",
+    {
+      description:
+        "Update an existing wiki page (cross-link fixes, superseded claims). Refuses raw/. Use after ingest when related entity/concept pages need changes.",
+      inputSchema: z.object({
+        title: z.string(),
+        content: z.string(),
+        tags: z.array(z.string()).optional(),
+        summary: z.string().optional(),
+      }),
+    },
+    async (args) => {
+      try {
+        return jsonResult(await updateWikiPage(vault, search, args));
+      } catch (err) {
+        return jsonResult({ error: err instanceof Error ? err.message : String(err) });
       }
     }
+  );
 
-    const indexContent = await vault.readNote("wiki/index.md");
-    let indexCoverage = 0;
-    for (const p of allPages) {
-      if (p === "wiki/index.md") continue;
-      const title = p.replace("wiki/", "").replace(/\.md$/, "");
-      if (indexContent?.includes(`[[${title}]]`)) indexCoverage++;
-    }
+  server.registerTool(
+    "query_wiki",
+    {
+      description:
+        "Search wiki pages and return full content + citations. Synthesize answers with citations. If the answer is durable, follow up with file_back.",
+      inputSchema: z.object({
+        query: z.string(),
+        top_k: z.number().optional(),
+      }),
+    },
+    async (args) => jsonResult(await queryWiki(vault, search, args.query, args.top_k ?? 5))
+  );
 
-    return { content: [{ type: "text" as const, text: JSON.stringify({
-      total_pages: allPages.length,
-      orphans,
-      orphan_count: orphans.length,
-      index_coverage: `${indexCoverage}/${allPages.length - 1}`,
-      index_percent: allPages.length > 1 ? Math.round((indexCoverage / (allPages.length - 1)) * 100) : 100,
-      pages: allPages.map(p => ({ path: p, inbound_links: (linkedTo.get(p) || []).length, is_orphan: orphans.includes(p) }))
-    }) }] };
-  });
-}
+  server.registerTool(
+    "file_back",
+    {
+      description:
+        "Write a durable query synthesis back into the wiki (with optional citations). Updates index.md and appends log.md.",
+      inputSchema: z.object({
+        title: z.string(),
+        content: z.string(),
+        tags: z.array(z.string()).optional(),
+        citations: z.array(z.string()).optional(),
+        query: z.string().optional(),
+      }),
+    },
+    async (args) => jsonResult(await fileBack(vault, search, args))
+  );
 
-async function updateIndex(vault: ObsidianVault, safeName: string, title: string, tags: string[]): Promise<void> {
-  const indexContent = (await vault.readNote("wiki/index.md")) || "# Wiki Index\n\n## Pages\n\n";
-  const entry = `- [[${safeName}]] — ${title}${tags.length ? ` (${tags.join(", ")})` : ""}`;
-  if (!indexContent.includes(`[[${safeName}]]`)) {
-    const updated = indexContent.replace("## Pages", `## Pages\n${entry}`);
-    await vault.writeNote("wiki/index.md", updated, ["wiki-index"]);
-  }
-}
-
-async function updateLog(vault: ObsidianVault, action: string, title: string, sourcePath?: string): Promise<void> {
-  const logContent = (await vault.readNote("wiki/log.md")) || "# Change Log\n\n";
-  const date = new Date().toISOString().slice(0, 10);
-  const entry = `## [${date}] ${action} | ${title}${sourcePath ? ` (${sourcePath})` : ""}`;
-  if (!logContent.includes(entry)) {
-    const updated = logContent + "\n" + entry;
-    await vault.writeNote("wiki/log.md", updated, ["wiki-log"]);
-  }
+  server.registerTool(
+    "lint_wiki",
+    {
+      description:
+        "Wiki health check. deep=true adds broken links, stubs, stale pages, deprecated-still-linked. CI: `aio wiki-lint --fail`.",
+      inputSchema: z.object({
+        deep: z.boolean().optional(),
+        stale_days: z.number().optional(),
+      }),
+    },
+    async (args) =>
+      jsonResult(await lintWiki(vault, { deep: args.deep === true, staleDays: args.stale_days }))
+  );
 }

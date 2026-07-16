@@ -27,6 +27,7 @@ import { ObsidianVault } from "@/knowledge/vault";
 import { createEmbedder } from "@/knowledge/embedder";
 import { SemanticSearch } from "@/knowledge/search";
 import { resolveIndexDir, resolveProjectRoot, resolveVaultRoot } from "@/knowledge/paths";
+import { lintWiki } from "@/knowledge/wiki-ops";
 import { MCPServer } from "@/mcp/server";
 import { DeepInterviewPlanner } from "@/orchestrator/planner";
 import { DAGOrchestrator } from "@/orchestrator/dag-orchestrator";
@@ -38,7 +39,7 @@ const program = new Command();
 program
   .name("aio")
   .description("AI Orchestration System - 병렬 AI 오케스트레이션 CLI")
-  .version("2.0.2");
+  .version("2.1.0");
 
 program
   .command("init")
@@ -54,6 +55,7 @@ program
     await vault.initialize();
     console.log(`  ✓ Project: ${projectRoot}`);
     console.log(`  ✓ Vault: ${vaultPath}`);
+    console.log(`  ✓ Layers: raw/ + wiki/ + AGENTS.md (schema)`);
 
     const embedder = createEmbedder();
     console.log(`  ✓ 임베딩 모델: ${process.env.EMBEDDING_MODEL || "auto"}`);
@@ -64,6 +66,46 @@ program
     console.log(`  ✓ 검색 인덱스: ${indexDir}`);
 
     console.log(chalk.green("\n초기화 완료!"));
+  });
+
+program
+  .command("wiki-lint")
+  .option("--vault <path>", "Obsidian vault 경로 (기본: <프로젝트>/vault)")
+  .option("--deep", "심층 lint (broken links, stubs, stale, deprecated)", false)
+  .option("--fail", "이슈가 있으면 exit code 1 (CI용)", false)
+  .description("Wiki 구조 lint (orphans, index, schema, raw)")
+  .action(async (options: { vault?: string; fail?: boolean; deep?: boolean }) => {
+    const vaultPath = resolveVaultRoot(options.vault);
+    const vault = new ObsidianVault(vaultPath);
+    const result = await lintWiki(vault, { deep: options.deep === true });
+
+    console.log(chalk.bold(`\nWiki lint — ${vaultPath}`));
+    console.log(`  ok: ${result.ok}`);
+    console.log(`  schema: ${result.schema_present}`);
+    console.log(`  wiki pages: ${result.total_wiki_pages}`);
+    console.log(`  raw sources: ${result.raw_count}`);
+    console.log(`  orphans: ${result.orphan_count}`);
+    console.log(`  index coverage: ${result.index_coverage} (${result.index_percent}%)`);
+
+    if (result.deep) {
+      console.log(`  broken links: ${result.deep.broken_links.length}`);
+      console.log(`  stubs: ${result.deep.stubs.length}`);
+      console.log(`  stale: ${result.deep.stale_pages.length}`);
+      console.log(`  deprecated linked: ${result.deep.deprecated_still_linked.length}`);
+    }
+
+    if (result.issues.length) {
+      console.log(chalk.yellow("\nIssues:"));
+      for (const issue of result.issues) {
+        console.log(`  - ${issue}`);
+      }
+    } else {
+      console.log(chalk.green("\nNo structural issues."));
+    }
+
+    if (options.fail && !result.ok) {
+      process.exitCode = 1;
+    }
   });
 
 program
@@ -165,7 +207,7 @@ program
 
     planner.printPlan(plan);
 
-    const orchestrator = new DAGOrchestrator(3);
+    const orchestrator = new DAGOrchestrator({ maxParallel: 3, enableVerify: false });
 
     const implementations = new Map<string, () => Promise<unknown>>([
       ["T1", async () => "DTO 정의 완료"],

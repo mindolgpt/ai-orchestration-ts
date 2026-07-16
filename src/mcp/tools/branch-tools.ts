@@ -1,35 +1,108 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { BranchHunt } from "@/orchestrator/branch-hunt";
+import { ChildSession } from "@/mcp/tools/session-tools";
+import { resolveProjectRoot } from "@/knowledge/paths";
 
 export function registerBranchTools(
   server: McpServer,
-  branchHunt: BranchHunt
+  branchHunt: BranchHunt,
+  sessions: Map<string, ChildSession>,
+  maxSessions: number,
+  projectRoot?: string
 ): void {
-  server.registerTool("scan_issues", {
-    description: "Scan codebase, spawn fix sessions",
-    inputSchema: z.object({ paths: z.array(z.string()).optional(), severity: z.enum(["low", "medium", "high", "critical"]).optional() }),
-  }, async (args) => {
-    const scanFn = async () => {
-      return [{ description: `Scan requested for paths: ${args.paths?.join(", ") || "all files"}`, file: args.paths?.[0] || ".", severity: args.severity || "medium" }];
-    };
-    const issues = await branchHunt.scanForIssues(scanFn);
-    return { content: [{ type: "text" as const, text: JSON.stringify({
-      found: issues.length,
-      issues: issues.map(i => ({ id: i.id, description: i.description, file: i.file, severity: i.severity, resolved: i.resolved }))
-    }) }] };
-  });
+  const root = projectRoot || resolveProjectRoot();
 
-  server.registerTool("collect_results", {
-    description: "Collect branch hunt results",
-  }, async () => {
-    const results = await branchHunt.collectResults();
-    return { content: [{ type: "text" as const, text: JSON.stringify({ collected: results.length, results }) }] };
-  });
+  server.registerTool(
+    "scan_issues",
+    {
+      description:
+        "Scan codebase (rg + .gitignore aware, walk fallback) for TODO/FIXME/HACK/XXX/empty-catch/eval. Optionally spawn fix sessions with worktree isolation.",
+      inputSchema: z.object({
+        paths: z.array(z.string()).optional(),
+        severity: z.enum(["low", "medium", "high", "critical"]).optional(),
+        spawn_fixes: z.boolean().optional(),
+        wait: z.boolean().optional(),
+        clear: z.boolean().optional(),
+        worktree: z.boolean().optional(),
+        runtime: z.enum(["opencode", "claude", "cursor", "codex", "custom"]).optional(),
+      }),
+    },
+    async (args) => {
+      if (args.clear) branchHunt.clear();
+      const found = await branchHunt.scanPaths(root, args.paths, args.severity || "low");
+      let spawned = 0;
+      if (args.spawn_fixes) {
+        const before = branchHunt.getIssues().filter((i) => i.sessionId).length;
+        await branchHunt.spawnFixes(sessions, maxSessions, {
+          wait: args.wait,
+          timeoutMs: 120_000,
+          worktree: args.worktree,
+          runtime: args.runtime,
+        });
+        spawned = branchHunt.getIssues().filter((i) => i.sessionId).length - before;
+      }
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              found: found.length,
+              spawned,
+              issues: branchHunt.getIssues().map((i) => ({
+                id: i.id,
+                description: i.description,
+                file: i.file,
+                severity: i.severity,
+                session_id: i.sessionId,
+                resolved: i.resolved,
+              })),
+            }),
+          },
+        ],
+      };
+    }
+  );
 
-  server.registerTool("get_branch_status", {
-    description: "Branch hunt status summary",
-  }, async () => ({
-    content: [{ type: "text" as const, text: JSON.stringify({ summary: branchHunt.summary() }) }],
-  }));
+  server.registerTool(
+    "collect_results",
+    {
+      description: "Collect branch-hunt results joined by issue.session_id",
+    },
+    async () => {
+      const results = await branchHunt.collectResults(sessions);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({ collected: results.length, results }),
+          },
+        ],
+      };
+    }
+  );
+
+  server.registerTool(
+    "get_branch_status",
+    {
+      description: "Branch hunt status summary",
+    },
+    async () => ({
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({
+            summary: branchHunt.summary(),
+            issues: branchHunt.getIssues().map((i) => ({
+              id: i.id,
+              file: i.file,
+              severity: i.severity,
+              session_id: i.sessionId,
+              resolved: i.resolved,
+            })),
+          }),
+        },
+      ],
+    })
+  );
 }

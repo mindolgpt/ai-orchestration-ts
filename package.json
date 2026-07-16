@@ -1,6 +1,6 @@
 {
   "name": "@mindol1004/aio-mcp",
-  "version": "2.0.2",
+  "version": "2.3.0",
   "description": "AI Orchestration System - TypeScript rewrite",
   "type": "module",
   "main": "dist/cli.js",
@@ -9,7 +9,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "templates"
   ],
   "publishConfig": {
     "access": "public"
@@ -21,6 +22,7 @@
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
+    "wiki-lint": "node dist/cli.js wiki-lint --fail",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "prepublishOnly": "npm run clean && npm run build"
   },
@@ -29,7 +31,8 @@
     "orchestration",
     "mcp",
     "dag",
-    "ralph-loop"
+    "ralph-loop",
+    "wiki"
   ],
   "author": "",
   "license": "MIT",

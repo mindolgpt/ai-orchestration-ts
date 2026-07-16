@@ -1,0 +1,24 @@
+# Wiki structural lint (team CI)
+
+name: wiki-lint
+
+on:
+  push:
+    paths:
+      - "vault/**"
+  pull_request:
+    paths:
+      - "vault/**"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run aio wiki-lint
+        run: npx -y @mindol1004/aio-mcp wiki-lint --vault ./vault --fail
+        env:
+          AIO_PROJECT_ROOT: ${{ github.workspace }}

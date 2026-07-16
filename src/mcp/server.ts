@@ -10,7 +10,17 @@ import { SemanticSearch } from "@/knowledge/search";
 import { resolveIndexDir, resolveProjectRoot, resolveVaultRoot } from "@/knowledge/paths";
 import { DeepInterviewPlanner } from "@/orchestrator/planner";
 import { BranchHunt } from "@/orchestrator/branch-hunt";
-import { registerSessionTools, registerKnowledgeTools, registerDagTools, registerBranchTools, registerWikiTools, ChildSession } from "@/mcp/tools";
+import { ApprovalGate } from "@/orchestrator/approval";
+import { getEventLog } from "@/observability/events";
+import {
+  registerSessionTools,
+  registerKnowledgeTools,
+  registerDagTools,
+  registerBranchTools,
+  registerWikiTools,
+  ChildSession,
+} from "@/mcp/tools";
+import { registerOpsTools } from "@/mcp/tools/ops-tools";
 
 export interface MCPServerOptions {
   maxSessions?: number;
@@ -26,6 +36,7 @@ export class MCPServer {
   private dagResults = new Map<string, unknown>();
   private planner = new DeepInterviewPlanner();
   private branchHunt: BranchHunt;
+  private approval: ApprovalGate;
   private maxSessions: number;
   readonly vaultRoot: string;
   readonly projectRoot: string;
@@ -44,9 +55,16 @@ export class MCPServer {
     const embedder = createEmbedder();
     this.search = new SemanticSearch(embedder, resolveIndexDir(this.vaultRoot));
     this.branchHunt = new BranchHunt(this.inbox);
+    this.approval = new ApprovalGate(this.projectRoot);
+    void this.approval.load();
+    void this.inbox.ensureReady();
+    void getEventLog(this.projectRoot).emit("server.start", {
+      projectRoot: this.projectRoot,
+      vaultRoot: this.vaultRoot,
+    });
 
     this.server = new McpServer(
-      { name: "aio-orchestrator", version: "2.0.2" },
+      { name: "aio-orchestrator", version: "2.3.0" },
       { capabilities: { tools: {} } }
     );
 
@@ -54,11 +72,21 @@ export class MCPServer {
   }
 
   private setupTools(): void {
-    registerSessionTools(this.server, this.sessions, this.inbox, this.maxSessions);
+    registerSessionTools(this.server, this.sessions, this.inbox, this.maxSessions, this.dagResults);
     registerKnowledgeTools(this.server, this.search, this.vault);
-    registerDagTools(this.server, this.planner, this.sessions, this.inbox, this.dagResults, this.maxSessions);
-    registerBranchTools(this.server, this.branchHunt);
+    registerDagTools(
+      this.server,
+      this.planner,
+      this.sessions,
+      this.inbox,
+      this.dagResults,
+      this.maxSessions,
+      this.approval,
+      this.projectRoot
+    );
+    registerBranchTools(this.server, this.branchHunt, this.sessions, this.maxSessions, this.projectRoot);
     registerWikiTools(this.server, this.vault, this.search);
+    registerOpsTools(this.server, this.approval);
   }
 
   async runStdio(): Promise<void> {
@@ -68,6 +96,7 @@ export class MCPServer {
     console.error(`[MCP] project root: ${this.projectRoot}`);
     console.error(`[MCP] vault root: ${this.vaultRoot}`);
     console.error(`[MCP] index dir: ${path.join(this.vaultRoot, ".index")}`);
+    console.error(`[MCP] inbox backend: ${this.inbox.backendName}`);
   }
 
   async runSSE(host = "127.0.0.1", port = 8910): Promise<void> {
@@ -100,12 +129,15 @@ export class MCPServer {
 
       if (req.method === "GET" && url.pathname === "/health") {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({
-          status: "ok",
-          sessions: transports.size,
-          projectRoot: this.projectRoot,
-          vaultRoot: this.vaultRoot,
-        }));
+        res.end(
+          JSON.stringify({
+            status: "ok",
+            sessions: transports.size,
+            projectRoot: this.projectRoot,
+            vaultRoot: this.vaultRoot,
+            inbox: this.inbox.backendName,
+          })
+        );
         return;
       }
 

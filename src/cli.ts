@@ -31,7 +31,7 @@ const program = new Command();
 program
   .name("aio")
   .description("AI Orchestration System - 병렬 AI 오케스트레이션 CLI")
-  .version("0.1.0");
+  .version("2.0.1");
 
 program
   .command("init")
@@ -88,7 +88,7 @@ program
   .description("SSE 기반 MCP 서버 실행 (외부 MCP 클라이언트용)")
   .action(async (options: ServeOptions) => {
     const mcp = new MCPServer(parseInt(options.maxSessions));
-    console.log(chalk.bold.cyan(`\n🔌 MCP 서버 시작 (SSE) - ${options.host}:${options.port}`));
+    console.log(chalk.bold.cyan(`\n🔌 MCP 서버 시작 (SSE) - http://${options.host}:${options.port}/sse`));
     console.log(`  최대 병렬 세션: ${options.maxSessions}`);
     console.log("  종료: Ctrl+C");
     await mcp.runSSE(options.host, parseInt(options.port));

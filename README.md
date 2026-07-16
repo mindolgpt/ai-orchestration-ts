@@ -52,9 +52,8 @@ src/
 │   ├── loop.ts                # 자동 구현→검증→재시도
 │   └── verifier.ts            # build→typecheck→test
 ├── mcp/                       # MCP 서버 + 툰
-│   ├── server.ts              # McpServer 래퍼 (44줄)
+│   ├── server.ts              # McpServer 래퍼 (stdio/SSE 트랜스포트)
 │   ├── inbox.ts               # 메시지 인박스 (결과 수집)
-│   ├── mcp-stdio.ts           # stdio MCP 서버
 │   └── tools/                 # 17개 MCP 툴 (도메인별 분리)
 │       ├── session-tools.ts   # 세션 관리 (7)
 │       ├── knowledge-tools.ts # 지식 관리 (2)

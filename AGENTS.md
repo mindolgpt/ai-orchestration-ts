@@ -92,9 +92,8 @@ src/
 │   ├── loop.ts               # 자동 구현→검증→재시도
 │   └── verifier.ts           # build→typecheck→test
 ├── mcp/                      # Session Spawn MCP
-│   ├── server.ts             # 세션 스폰/관리
-│   ├── inbox.ts              # 메시지 인박스 (결과 수집)
-│   └── mcp-stdio.ts          # stdio MCP 서버
+│   ├── server.ts             # 세션 스폰/관리 (stdio/SSE 트랜스포트)
+│   └── inbox.ts              # 메시지 인박스 (결과 수집)
 └── orchestrator/             # 실행 스킬
     ├── planner.ts            # 심층 인터뷰 플래너
     ├── dag-orchestrator.ts   # DAG 기반 구현 병렬화

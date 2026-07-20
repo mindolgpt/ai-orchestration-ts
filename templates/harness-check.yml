@@ -1,0 +1,19 @@
+# CI: wiki lint + harness bootstrap smoke
+name: aio-harness-wiki
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  wiki-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npx -y @mindol1004/aio-mcp init
+      - run: npx -y @mindol1004/aio-mcp wiki-lint --deep --fail

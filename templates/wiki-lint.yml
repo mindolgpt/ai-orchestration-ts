@@ -5,10 +5,10 @@ name: wiki-lint
 on:
   push:
     paths:
-      - "vault/**"
+      - 'vault/**'
   pull_request:
     paths:
-      - "vault/**"
+      - 'vault/**'
 
 jobs:
   lint:
@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: '20'
       - name: Run aio wiki-lint
         run: npx -y @mindol1004/aio-mcp wiki-lint --vault ./vault --fail
         env:

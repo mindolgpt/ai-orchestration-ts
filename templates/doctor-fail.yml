@@ -1,0 +1,20 @@
+# CI: fail on aio doctor warnings/errors
+name: aio-doctor
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  doctor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+        working-directory: ${{ github.workspace }}
+      - run: npx -y @mindol1004/aio-mcp init
+      - run: npx -y @mindol1004/aio-mcp doctor --fail --skip-embed-test

@@ -1,7 +1,7 @@
-import * as fs from "fs/promises";
-import * as path from "path";
-import { DomainProfile } from "@/harness/types";
-import { hookKeywordRules } from "@/harness/tool-keywords";
+import * as fs from 'fs/promises'
+import * as path from 'path'
+import { DomainProfile } from '@/harness/types'
+import { hookKeywordRules } from '@/harness/tool-keywords'
 
 export function projectAgentsMd(profile: DomainProfile): string {
   const stack = [
@@ -10,7 +10,7 @@ export function projectAgentsMd(profile: DomainProfile): string {
     profile.stack?.infra && `Infra: ${profile.stack.infra}`,
   ]
     .filter(Boolean)
-    .join(" · ");
+    .join(' · ')
 
   return `# Project Agent Harness (aio-mcp)
 
@@ -48,22 +48,18 @@ Full list: \`list_tool_keywords\`
 
 - Do **not** invent domain facts missing from wiki/raw.
 - Respect **bounded contexts** from wiki (do not merge unrelated domains in one module).
-- ${profile.loop?.require_citations !== false ? "Answers must include wiki citations." : "Prefer wiki citations."}
-${stack ? `\n## Stack\n\n${stack}\n` : ""}
+- ${profile.loop?.require_citations !== false ? 'Answers must include wiki citations.' : 'Prefer wiki citations.'}
+${stack ? `\n## Stack\n\n${stack}\n` : ''}
 ## MCP tools (priority)
 
-${(profile.harness?.suggested_mcp_tools || [])
-  .map((t) => `- \`${t}\``)
-  .join("\n")}
+${(profile.harness?.suggested_mcp_tools || []).map((t) => `- \`${t}\``).join('\n')}
 
 ## Loop
 
-${(profile.loop?.steps || [])
-  .map((s, i) => `${i + 1}. ${s}`)
-  .join("\n")}
+${(profile.loop?.steps || []).map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
 Re-run \`bootstrap_harness\` after changing \`.aio/domain-profile.yaml\`.
-`;
+`
 }
 
 function harnessRuleBody(profile: DomainProfile): string {
@@ -85,8 +81,8 @@ You work on **${profile.domain}**. ${profile.description}
 - Collapse bounded contexts into one god-module
 - Edit \`vault/raw/\` (immutable)
 
-Stack: ${profile.stack?.backend || "—"} / ${profile.stack?.frontend || "—"}
-`;
+Stack: ${profile.stack?.backend || '—'} / ${profile.stack?.frontend || '—'}
+`
 }
 
 export function cursorRuleMdc(profile: DomainProfile): string {
@@ -95,7 +91,7 @@ description: aio-mcp domain wiki harness — always bootstrap wiki context befor
 alwaysApply: true
 ---
 
-${harnessRuleBody(profile)}`;
+${harnessRuleBody(profile)}`
 }
 
 export function windsurfRuleMd(profile: DomainProfile): string {
@@ -104,7 +100,7 @@ trigger: always_on
 description: aio-mcp domain wiki harness — bootstrap wiki context before coding
 ---
 
-${harnessRuleBody(profile)}`;
+${harnessRuleBody(profile)}`
 }
 
 export function continueRuleMd(profile: DomainProfile): string {
@@ -114,14 +110,14 @@ alwaysApply: true
 description: aio-mcp domain wiki harness — bootstrap wiki context before coding
 ---
 
-${harnessRuleBody(profile)}`;
+${harnessRuleBody(profile)}`
 }
 
 export function claudeMd(profile: DomainProfile): string {
   return projectAgentsMd(profile).replace(
-    "# Project Agent Harness",
-    "# Claude Code — Project Harness"
-  );
+    '# Project Agent Harness',
+    '# Claude Code — Project Harness'
+  )
 }
 
 export function cursorHooksJson(): string {
@@ -129,18 +125,18 @@ export function cursorHooksJson(): string {
     {
       version: 1,
       hooks: {
-        sessionStart: [{ command: "node .cursor/hooks/aio-session-start.mjs" }],
+        sessionStart: [{ command: 'node .cursor/hooks/aio-session-start.mjs' }],
         beforeSubmitPrompt: [
           {
-            command: "node .cursor/hooks/aio-before-prompt.mjs",
-            matcher: "UserPromptSubmit",
+            command: 'node .cursor/hooks/aio-before-prompt.mjs',
+            matcher: 'UserPromptSubmit',
           },
         ],
       },
     },
     null,
     2
-  );
+  )
 }
 
 export function cursorSessionStartHook(): string {
@@ -184,17 +180,17 @@ try {
 }
 
 console.log(JSON.stringify({ additional_context: additional }));
-`;
+`
 }
 
 function keywordHookRulesJson(): string {
   const rules = hookKeywordRules()
     .map((r) => ({
       tool: r.tool,
-      re: r.sources.slice(0, 8).join("|"),
+      re: r.sources.slice(0, 8).join('|'),
     }))
-    .filter((r) => r.re.length > 0);
-  return JSON.stringify(rules, null, 2);
+    .filter((r) => r.re.length > 0)
+  return JSON.stringify(rules, null, 2)
 }
 
 export function cursorBeforePromptHook(): string {
@@ -258,7 +254,7 @@ if (additional_context) {
 } else {
   console.log("{}");
 }
-`;
+`
 }
 
 export function claudeSettingsJson(): string {
@@ -269,7 +265,7 @@ export function claudeSettingsJson(): string {
           {
             hooks: [
               {
-                type: "command",
+                type: 'command',
                 command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/aio-session-start.mjs"',
               },
             ],
@@ -279,7 +275,7 @@ export function claudeSettingsJson(): string {
           {
             hooks: [
               {
-                type: "command",
+                type: 'command',
                 command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/aio-before-prompt.mjs"',
               },
             ],
@@ -289,7 +285,7 @@ export function claudeSettingsJson(): string {
     },
     null,
     2
-  );
+  )
 }
 
 export function claudeSessionStartHook(): string {
@@ -340,7 +336,7 @@ console.log(
     },
   })
 );
-`;
+`
 }
 
 export function claudeBeforePromptHook(): string {
@@ -411,7 +407,7 @@ if (additionalContext) {
 } else {
   console.log("{}");
 }
-`;
+`
 }
 
 /** Codex CLI hooks — same JSON contract as Claude Code (developers.openai.com/codex/hooks) */
@@ -421,12 +417,12 @@ export function codexHooksJson(): string {
       hooks: {
         SessionStart: [
           {
-            matcher: "startup|resume",
+            matcher: 'startup|resume',
             hooks: [
               {
-                type: "command",
+                type: 'command',
                 command: 'node ".codex/hooks/aio-session-start.mjs"',
-                statusMessage: "aio-mcp session context",
+                statusMessage: 'aio-mcp session context',
               },
             ],
           },
@@ -435,9 +431,9 @@ export function codexHooksJson(): string {
           {
             hooks: [
               {
-                type: "command",
+                type: 'command',
                 command: 'node ".codex/hooks/aio-before-prompt.mjs"',
-                statusMessage: "aio-mcp keyword routing",
+                statusMessage: 'aio-mcp keyword routing',
               },
             ],
           },
@@ -446,7 +442,7 @@ export function codexHooksJson(): string {
     },
     null,
     2
-  );
+  )
 }
 
 /** Windsurf Cascade hooks — pre_user_prompt (docs.devin.ai/desktop/cascade/hooks) */
@@ -456,7 +452,7 @@ export function windsurfHooksJson(): string {
       hooks: {
         pre_user_prompt: [
           {
-            command: "node .windsurf/hooks/aio-before-prompt.mjs",
+            command: 'node .windsurf/hooks/aio-before-prompt.mjs',
             show_output: false,
           },
         ],
@@ -464,7 +460,7 @@ export function windsurfHooksJson(): string {
     },
     null,
     2
-  );
+  )
 }
 
 export function windsurfBeforePromptHook(): string {
@@ -527,7 +523,7 @@ if (hint) {
   console.error(hint);
 }
 process.exit(0);
-`;
+`
 }
 
 /** Continue CLI hooks — Claude Code-compatible (extensions/cli hooks, 2026) */
@@ -539,8 +535,8 @@ export function continueSettingsJson(): string {
           {
             hooks: [
               {
-                type: "command",
-                command: "node .continue/hooks/aio-session-start.mjs",
+                type: 'command',
+                command: 'node .continue/hooks/aio-session-start.mjs',
               },
             ],
           },
@@ -549,8 +545,8 @@ export function continueSettingsJson(): string {
           {
             hooks: [
               {
-                type: "command",
-                command: "node .continue/hooks/aio-before-prompt.mjs",
+                type: 'command',
+                command: 'node .continue/hooks/aio-before-prompt.mjs',
               },
             ],
           },
@@ -559,7 +555,7 @@ export function continueSettingsJson(): string {
     },
     null,
     2
-  );
+  )
 }
 
 /** OpenCode plugin — auto-loaded from .opencode/plugins/ (opencode.ai/docs/plugins) */
@@ -668,16 +664,16 @@ export const AioHarnessPlugin = async ({ directory, worktree }) => {
 };
 
 export default AioHarnessPlugin;
-`;
+`
 }
 
 export function mcpJsonCursor(projectRoot: string): string {
   return JSON.stringify(
     {
       mcpServers: {
-        "aio-mcp": {
-          command: "npx",
-          args: ["-y", "@mindol1004/aio-mcp", "mcp-serve"],
+        'aio-mcp': {
+          command: 'npx',
+          args: ['-y', '@mindol1004/aio-mcp', 'mcp-serve'],
           env: {
             AIO_PROJECT_ROOT: projectRoot,
           },
@@ -686,17 +682,17 @@ export function mcpJsonCursor(projectRoot: string): string {
     },
     null,
     2
-  );
+  )
 }
 
 export function mcpJsonClaude(projectRoot: string): string {
   return JSON.stringify(
     {
       mcpServers: {
-        "aio-mcp": {
-          type: "stdio",
-          command: "npx",
-          args: ["-y", "@mindol1004/aio-mcp", "mcp-serve"],
+        'aio-mcp': {
+          type: 'stdio',
+          command: 'npx',
+          args: ['-y', '@mindol1004/aio-mcp', 'mcp-serve'],
           env: {
             AIO_PROJECT_ROOT: projectRoot,
           },
@@ -705,18 +701,18 @@ export function mcpJsonClaude(projectRoot: string): string {
     },
     null,
     2
-  );
+  )
 }
 
 export function opencodeJson(projectRoot: string): string {
   return JSON.stringify(
     {
-      $schema: "https://opencode.ai/config.json",
-      instructions: ["AGENTS.md"],
+      $schema: 'https://opencode.ai/config.json',
+      instructions: ['AGENTS.md'],
       mcp: {
-        "aio-mcp": {
-          type: "local",
-          command: ["npx", "-y", "@mindol1004/aio-mcp", "mcp-serve"],
+        'aio-mcp': {
+          type: 'local',
+          command: ['npx', '-y', '@mindol1004/aio-mcp', 'mcp-serve'],
           enabled: true,
           environment: {
             AIO_PROJECT_ROOT: projectRoot,
@@ -726,7 +722,7 @@ export function opencodeJson(projectRoot: string): string {
     },
     null,
     2
-  );
+  )
 }
 
 export function codexToml(projectRoot: string): string {
@@ -736,12 +732,12 @@ command = "npx"
 args = ["-y", "@mindol1004/aio-mcp", "mcp-serve"]
 
 [mcp_servers.aio-mcp.env]
-AIO_PROJECT_ROOT = "${projectRoot.replace(/\\/g, "/")}"
-`;
+AIO_PROJECT_ROOT = "${projectRoot.replace(/\\/g, '/')}"
+`
 }
 
 export function windsurfMcpJson(projectRoot: string): string {
-  return mcpJsonCursor(projectRoot);
+  return mcpJsonCursor(projectRoot)
 }
 
 export function continueMcpYaml(projectRoot: string): string {
@@ -755,26 +751,26 @@ mcpServers:
       - mcp-serve
     env:
       AIO_PROJECT_ROOT: ${JSON.stringify(projectRoot)}
-`;
+`
 }
 
 export async function mergeJsonFile(
   filePath: string,
   merge: Record<string, unknown>,
   key: string
-): Promise<"created" | "updated"> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  let existing: Record<string, unknown> = {};
+): Promise<'created' | 'updated'> {
+  await fs.mkdir(path.dirname(filePath), { recursive: true })
+  let existing: Record<string, unknown> = {}
   try {
-    const raw = await fs.readFile(filePath, "utf-8");
-    existing = JSON.parse(raw) as Record<string, unknown>;
+    const raw = await fs.readFile(filePath, 'utf-8')
+    existing = JSON.parse(raw) as Record<string, unknown>
   } catch {
-    await fs.writeFile(filePath, JSON.stringify(merge, null, 2), "utf-8");
-    return "created";
+    await fs.writeFile(filePath, JSON.stringify(merge, null, 2), 'utf-8')
+    return 'created'
   }
-  const bucket = (existing[key] as Record<string, unknown>) || {};
-  const incoming = (merge[key] as Record<string, unknown>) || {};
-  existing[key] = { ...bucket, ...incoming };
-  await fs.writeFile(filePath, JSON.stringify(existing, null, 2), "utf-8");
-  return "updated";
+  const bucket = (existing[key] as Record<string, unknown>) || {}
+  const incoming = (merge[key] as Record<string, unknown>) || {}
+  existing[key] = { ...bucket, ...incoming }
+  await fs.writeFile(filePath, JSON.stringify(existing, null, 2), 'utf-8')
+  return 'updated'
 }

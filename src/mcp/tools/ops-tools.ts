@@ -1,13 +1,13 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-import { ApprovalGate } from "@/orchestrator/approval";
-import { getEventLog } from "@/observability/events";
-import { listWorktrees, removeWorktree } from "@/orchestrator/worktree";
-import { runDoctor } from "@/doctor/check";
-import { resolveProjectRoot } from "@/knowledge/paths";
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { z } from 'zod'
+import { ApprovalGate } from '@/orchestrator/approval'
+import { getEventLog } from '@/observability/events'
+import { listWorktrees, removeWorktree } from '@/orchestrator/worktree'
+import { runDoctor } from '@/doctor/check'
+import { resolveProjectRoot } from '@/knowledge/paths'
 
 function json(data: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
 }
 
 export function registerOpsTools(
@@ -15,27 +15,27 @@ export function registerOpsTools(
   approval: ApprovalGate,
   projectRoot?: string
 ): void {
-  const root = projectRoot || resolveProjectRoot();
+  const root = projectRoot || resolveProjectRoot()
   server.registerTool(
-    "request_approval",
+    'request_approval',
     {
       description:
-        "Create a human-in-the-loop approval gate for risky actions (push, publish, destructive ops).",
+        'Create a human-in-the-loop approval gate for risky actions (push, publish, destructive ops).',
       inputSchema: z.object({
         action: z.string(),
         reason: z.string(),
-        risk: z.enum(["low", "medium", "high", "critical"]).optional(),
+        risk: z.enum(['low', 'medium', 'high', 'critical']).optional(),
         meta: z.record(z.unknown()).optional(),
       }),
     },
     async (args) =>
-      json(await approval.request(args.action, args.reason, args.risk || "high", args.meta))
-  );
+      json(await approval.request(args.action, args.reason, args.risk || 'high', args.meta))
+  )
 
   server.registerTool(
-    "resolve_approval",
+    'resolve_approval',
     {
-      description: "Approve or reject a pending approval request",
+      description: 'Approve or reject a pending approval request',
       inputSchema: z.object({
         approval_id: z.string(),
         approved: z.boolean(),
@@ -43,24 +43,24 @@ export function registerOpsTools(
       }),
     },
     async (args) =>
-      json(await approval.resolve(args.approval_id, args.approved, args.resolver || "human"))
-  );
+      json(await approval.resolve(args.approval_id, args.approved, args.resolver || 'human'))
+  )
 
   server.registerTool(
-    "list_approvals",
+    'list_approvals',
     {
-      description: "List approval requests",
+      description: 'List approval requests',
       inputSchema: z.object({
-        status: z.enum(["pending", "approved", "rejected", "expired"]).optional(),
+        status: z.enum(['pending', 'approved', 'rejected', 'expired']).optional(),
       }),
     },
     async (args) => json({ approvals: approval.list(args.status) })
-  );
+  )
 
   server.registerTool(
-    "get_events",
+    'get_events',
     {
-      description: "Recent orchestrator observability events (also written to .aio/events.jsonl)",
+      description: 'Recent orchestrator observability events (also written to .aio/events.jsonl)',
       inputSchema: z.object({
         limit: z.number().optional(),
         type_prefix: z.string().optional(),
@@ -71,21 +71,21 @@ export function registerOpsTools(
         path: getEventLog().path,
         events: getEventLog().recent(args.limit ?? 50, args.type_prefix),
       })
-  );
+  )
 
   server.registerTool(
-    "list_worktrees",
+    'list_worktrees',
     {
-      description: "List git worktrees (aio session isolation)",
+      description: 'List git worktrees (aio session isolation)',
     },
     async () => json({ porcelain: await listWorktrees() })
-  );
+  )
 
   server.registerTool(
-    "run_doctor",
+    'run_doctor',
     {
       description:
-        "Project health / onboarding diagnostic. Keywords: doctor, 진단, 헬스체크. Returns vault, harness, MCP, git, session runtime checks.",
+        'Project health / onboarding diagnostic. Keywords: doctor, 진단, 헬스체크. Returns vault, harness, MCP, git, session runtime checks.',
       inputSchema: z.object({
         skip_embed_test: z.boolean().optional(),
       }),
@@ -97,12 +97,12 @@ export function registerOpsTools(
           skipEmbedTest: args.skip_embed_test === true,
         })
       )
-  );
+  )
 
   server.registerTool(
-    "remove_worktree",
+    'remove_worktree',
     {
-      description: "Remove an aio session worktree",
+      description: 'Remove an aio session worktree',
       inputSchema: z.object({
         session_id: z.string(),
         delete_branch: z.boolean().optional(),
@@ -110,5 +110,5 @@ export function registerOpsTools(
     },
     async (args) =>
       json(await removeWorktree(args.session_id, undefined, args.delete_branch === true))
-  );
+  )
 }

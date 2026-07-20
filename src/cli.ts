@@ -46,7 +46,7 @@ const program = new Command()
 program
   .name('aio')
   .description('AI Orchestration System — parallel AI orchestration CLI')
-  .version('2.12.0')
+  .version('2.14.0')
 
 program
   .command('init')

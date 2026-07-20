@@ -296,15 +296,54 @@ function rankOptions(
   })
 }
 
+function answeredQuestionIds(answers?: BrainstormAnswers): Set<string> {
+  const ids = new Set<string>()
+  if (answers?.scale) ids.add('scale')
+  if (answers?.phase) ids.add('phase')
+  if (answers?.consistency) ids.add('consistency')
+  if (answers?.traffic) ids.add('traffic')
+  if (answers?.preferred_store) ids.add('preferred_store')
+  return ids
+}
+
+function filterPendingQuestions(
+  questions: BrainstormQuestion[],
+  answers?: BrainstormAnswers
+): BrainstormQuestion[] {
+  const done = answeredQuestionIds(answers)
+  return questions.filter((q) => !done.has(q.id))
+}
+
 function buildAgentInstructions(
   topic: string,
   lenses: BrainstormLens[],
-  options: BrainstormOption[]
+  options: BrainstormOption[],
+  status: 'questions' | 'brief',
+  answers?: BrainstormAnswers
 ): string {
   const relevantLenses = lenses
     .filter((l) => l.relevant)
     .map((l) => l.label_ko)
     .join(' → ')
+
+  const continueHint =
+    status === 'questions'
+      ? [
+          '',
+          '## Continue the session (important)',
+          'When the user answers (e.g. just `design` or `mvp`):',
+          '1. Call **`brainstorm_design` again** (or `aio_prompt` execute:true) with:',
+          `   - **same topic**: \`${topic.replace(/`/g, "'")}\``,
+          '   - **answers**: merge prior answers + new ones (`phase`, `scale`, …)',
+          '2. Do **not** start a new brainstorm with the short answer as the topic.',
+          '3. Ask **one** pending clarifying_question at a time.',
+          answers?.phase || answers?.scale
+            ? `4. Already known: phase=${answers?.phase || '?'}, scale=${answers?.scale || '?'}.`
+            : '',
+        ]
+          .filter(Boolean)
+          .join('\n')
+      : ''
 
   return [
     '# Full-lifecycle brainstorm facilitator',
@@ -323,6 +362,7 @@ function buildAgentInstructions(
     '4. Cite **wiki_citations** for domain rules — never invent BC facts.',
     '5. Present **options** as menu with pros/cons — user picks or mixes.',
     '6. On confirmation → `file_back` to wiki; sketches (ERD, flow, wireframe) in markdown.',
+    continueHint,
     '',
     `Suggested lens order for this topic: ${relevantLenses || '전체 순회'}`,
     '',
@@ -411,35 +451,14 @@ export async function brainstormDesign(
 
   const domainRules = matchDomainPatterns(topic)
   const focusPlaybooks = collectFocusPlaybooks(detectedFocus)
+  const answers = opts?.answers
 
-  const questions = dedupeQuestions([
+  const allQuestions = dedupeQuestions([
     ...domainRules.flatMap((r) => r.questions),
     ...focusPlaybooks.flatMap((p) => p.questions),
     ...SCALE_QUESTIONS,
   ])
-
-  if (!opts?.skip_questions && !opts?.answers?.scale && !opts?.answers?.phase) {
-    return {
-      status: 'questions',
-      topic,
-      detected_focus: detectedFocus,
-      development_lenses: lenses,
-      detected_stacks: stacks,
-      wiki_citations: [],
-      context_excerpt: '',
-      clarifying_questions: questions,
-      options: [],
-      recommendation: { primary: '', rationale: '', alternatives: [], risks: [] },
-      agent_instructions: buildAgentInstructions(topic, lenses, []),
-      markdown: [
-        '# Brainstorm — discovery',
-        '',
-        'Full lifecycle: 기획·UX·디자인·도메인·DB·알고리즘·보안·테스트·DevOps…',
-        '',
-        ...questions.map((q) => `## [${q.focus}] ${q.id}\n${q.question}`),
-      ].join('\n'),
-    }
-  }
+  const questions = filterPendingQuestions(allQuestions, answers)
 
   const pack = await buildDomainContextPack(vault, search, topic, {
     project_root: root,
@@ -451,9 +470,40 @@ export async function brainstormDesign(
       ...domainRules.flatMap((r) => r.keywords),
     ],
   })
-
   const wikiCitations = pack.citations.map((c) => c.path)
   const contextExcerpt = pack.pages.map((p) => `### ${p.title}\n${p.excerpt}`).join('\n\n')
+
+  // Need both scale + phase (or skip) before emitting a ranked brief
+  const readyForBrief =
+    opts?.skip_questions === true || (!!answers?.scale && !!answers?.phase)
+
+  if (!readyForBrief) {
+    return {
+      status: 'questions',
+      topic,
+      detected_focus: detectedFocus,
+      development_lenses: lenses,
+      detected_stacks: stacks,
+      wiki_citations: wikiCitations,
+      context_excerpt: contextExcerpt.slice(0, 4000),
+      clarifying_questions: questions,
+      options: [],
+      recommendation: { primary: '', rationale: '', alternatives: [], risks: [] },
+      agent_instructions: buildAgentInstructions(topic, lenses, [], 'questions', answers),
+      markdown: [
+        '# Brainstorm — clarifying',
+        '',
+        `Known: phase=${answers?.phase || '?'}, scale=${answers?.scale || '?'}`,
+        '',
+        'Full lifecycle: 기획·UX·디자인·도메인·DB·알고리즘·보안·테스트·DevOps…',
+        '',
+        '## Wiki context',
+        contextExcerpt.slice(0, 1500) || '_No wiki hits yet_',
+        '',
+        ...questions.map((q) => `## [${q.focus}] ${q.id}\n${q.question}`),
+      ].join('\n'),
+    }
+  }
 
   let options: BrainstormOption[] = [
     ...domainRules.flatMap((r) =>
@@ -496,13 +546,13 @@ export async function brainstormDesign(
     )
   }
 
-  options = rankOptions(dedupeOptions(options), opts?.answers, stacks)
+  options = rankOptions(dedupeOptions(options), answers, stacks)
   const primary = options[0]
 
   const recommendation = {
     primary: primary.name,
     rationale: [
-      `Phase=${opts?.answers?.phase || '?'}, scale=${opts?.answers?.scale || '?'}.`,
+      `Phase=${answers?.phase || '?'}, scale=${answers?.scale || '?'}.`,
       `Lenses: ${detectedFocus.join(', ')}.`,
       primary.when_to_use,
       wikiCitations.length
@@ -512,7 +562,7 @@ export async function brainstormDesign(
     alternatives: options.slice(1, 5).map((o) => o.name),
     risks: [
       ...primary.cons.slice(0, 2),
-      ...(opts?.answers?.scale === 'mvp' && primary.complexity === 'high'
+      ...(answers?.scale === 'mvp' && primary.complexity === 'high'
         ? ['Over-engineering for MVP']
         : []),
     ],
@@ -531,7 +581,7 @@ export async function brainstormDesign(
     recommendation,
   }
 
-  const agent_instructions = buildAgentInstructions(topic, lenses, options)
+  const agent_instructions = buildAgentInstructions(topic, lenses, options, 'brief', answers)
   const markdown = buildMarkdown(partial)
 
   let docs_written: string[] | undefined

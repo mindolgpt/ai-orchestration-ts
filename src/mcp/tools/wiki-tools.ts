@@ -116,25 +116,35 @@ export function registerWikiTools(
     'ingest_pipeline',
     {
       description:
-        'End-to-end ingest: ingest_raw (content or file_path) → ingest_source or batch concepts → lint_wiki. Preferred for new documents.',
+        'End-to-end ingest: ingest_raw (content or file_path) → wiki concepts → lint_wiki. ' +
+        'For NEW docs pass file_path or substantial content. ' +
+        'To re-ingest wiki from an existing raw without duplicating it, pass raw_id (skip_raw implied). ' +
+        'Never pass chat/command text as content.',
       inputSchema: z.object({
         title: z.string().optional(),
         content: z.string().optional(),
         file_path: z.string().optional(),
         source_uri: z.string().optional(),
+        raw_id: z.string().optional(),
+        skip_raw: z.boolean().optional(),
         concepts: z.array(conceptSchema).optional(),
         run_lint: z.boolean().optional(),
         lint_deep: z.boolean().optional(),
       }),
     },
-    async (args) =>
-      jsonResult(
-        await ingestPipeline(vault, search, {
-          ...args,
-          project_root: resolveProjectRoot(),
-          run_lint: args.run_lint !== false,
-        })
-      )
+    async (args) => {
+      try {
+        return jsonResult(
+          await ingestPipeline(vault, search, {
+            ...args,
+            project_root: resolveProjectRoot(),
+            run_lint: args.run_lint !== false,
+          })
+        )
+      } catch (err) {
+        return jsonResult({ error: err instanceof Error ? err.message : String(err) })
+      }
+    }
   )
 
   server.registerTool(

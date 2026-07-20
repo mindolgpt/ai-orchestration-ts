@@ -28,18 +28,13 @@ import {
   queryWiki,
   updateWikiPage,
 } from '@/knowledge/wiki-ops'
-
-function asStr(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback
-}
-
-function optStr(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined
-}
 import {
+  hasIngestDocumentPayload,
+  hasSubstantialIngestContent,
   ingestPipeline,
   ingestRawFromOpts,
   ingestSourceBatch,
+  MIN_INGEST_CONTENT_CHARS,
 } from '@/knowledge/wiki-ingest-pipeline'
 import {
   proposeWikiChange,
@@ -57,6 +52,14 @@ import { createInbox } from '@/mcp/inbox'
 import { runDoctor } from '@/doctor/check'
 import { createEmbedder } from '@/knowledge/embedder'
 import { resolveIndexDir, resolveProjectRoot, resolveVaultRoot } from '@/knowledge/paths'
+
+function asStr(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback
+}
+
+function optStr(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
 
 export interface PromptExecutorDeps {
   vault: ObsidianVault
@@ -93,6 +96,60 @@ export interface ExecutePromptResult {
   hint?: string
 }
 
+function guardIngestExecute(
+  tool: string,
+  p: Record<string, unknown>,
+  message: string
+): ExecutePromptResult | null {
+  const destructive = new Set([
+    'ingest_pipeline',
+    'ingest_raw',
+    'ingest_source',
+    'ingest_source_batch',
+  ])
+  if (!destructive.has(tool)) return null
+
+  const payload = {
+    content: optStr(p.content),
+    file_path: optStr(p.file_path),
+    raw_id: optStr(p.raw_id),
+    skip_raw: p.skip_raw === true,
+  }
+
+  if (tool === 'ingest_source' || tool === 'ingest_source_batch') {
+    if (payload.raw_id) return null
+    if (hasSubstantialIngestContent(payload.content)) return null
+    if (Array.isArray(p.concepts) && p.concepts.length > 0) return null
+    return {
+      tool,
+      executed: false,
+      suggested_params: p,
+      hint:
+        `${tool} refused: provide raw_id and/or substantial content (>= ${MIN_INGEST_CONTENT_CHARS} chars), ` +
+        'or concepts[]. Do not pass chat/command text as the document.',
+      error: 'missing_ingest_document',
+    }
+  }
+
+  if (!hasIngestDocumentPayload(payload)) {
+    return {
+      tool,
+      executed: false,
+      suggested_params: {
+        ...p,
+        _message: message.slice(0, 120),
+      },
+      hint:
+        `${tool} refused: pass file_path, raw_id (re-ingest existing raw), or substantial content ` +
+        `(>= ${MIN_INGEST_CONTENT_CHARS} chars). Chat text alone is not ingested. ` +
+        'Example: ingest_pipeline({ file_path: "docs/x.md", concepts: [...] }) or ' +
+        'ingest_pipeline({ raw_id: "a117f128", skip_raw: true, concepts: [...] }).',
+      error: 'missing_ingest_document',
+    }
+  }
+  return null
+}
+
 export async function executePromptRoute(
   deps: PromptExecutorDeps,
   opts: ExecutePromptOptions
@@ -116,6 +173,9 @@ export async function executePromptRoute(
       hint: 'Set execute:true to run, or call the tool directly with suggested_params.',
     }
   }
+
+  const ingestGuard = guardIngestExecute(route.tool, p, message)
+  if (ingestGuard) return ingestGuard
 
   try {
     const result = await dispatchTool(deps, route.tool, message, p, opts.harness)
@@ -180,12 +240,27 @@ async function dispatchTool(
         mobile: detectStacksFromText(message).mobile,
       })
 
-    case 'brainstorm_design':
+    case 'brainstorm_design': {
+      const fromParams =
+        p.answers && typeof p.answers === 'object'
+          ? (p.answers as import('@/harness/brainstorm').BrainstormAnswers)
+          : {}
+      const fromHarness =
+        harness?.answers && typeof harness.answers === 'object'
+          ? (harness.answers as import('@/harness/brainstorm').BrainstormAnswers)
+          : {}
+      // params.answers win over aio_prompt harness.answers; never skip only because answers bag exists
+      const answers = { ...fromHarness, ...fromParams }
       return brainstormDesign(vault, search, asStr(p.topic) || asStr(p.intent) || message, {
         project_root: projectRoot,
-        answers: p.answers as import('@/harness/brainstorm').BrainstormAnswers,
-        skip_questions: p.skip_questions === true || !!harness?.answers,
+        focus: Array.isArray(p.focus)
+          ? (p.focus as import('@/harness/brainstorm').BrainstormFocus[])
+          : undefined,
+        answers,
+        skip_questions: p.skip_questions === true,
+        write_docs: typeof p.write_docs === 'boolean' ? p.write_docs : undefined,
       })
+    }
 
     case 'seed_stack_playbooks':
       return {
@@ -227,7 +302,7 @@ async function dispatchTool(
     case 'ingest_raw':
       return ingestRawFromOpts(vault, {
         title: asStr(p.title, 'Untitled'),
-        content: asStr(p.content, message),
+        content: optStr(p.content) || '',
         file_path: optStr(p.file_path),
         project_root: projectRoot,
       })
@@ -235,7 +310,7 @@ async function dispatchTool(
     case 'ingest_source':
       return ingestSource(vault, search, {
         title: asStr(p.title, 'Untitled'),
-        content: asStr(p.content, message),
+        content: asStr(p.content, ''),
         subdir: optStr(p.subdir),
         raw_id: optStr(p.raw_id),
       })
@@ -244,7 +319,7 @@ async function dispatchTool(
       return ingestSourceBatch(vault, search, {
         concepts:
           (p.concepts as import('@/knowledge/wiki-ingest-pipeline').IngestConceptInput[]) || [
-            { title: asStr(p.title, 'Untitled'), content: asStr(p.content, message) },
+            { title: asStr(p.title, 'Untitled'), content: asStr(p.content, '') },
           ],
         raw_id: optStr(p.raw_id),
       })
@@ -252,8 +327,10 @@ async function dispatchTool(
     case 'ingest_pipeline':
       return ingestPipeline(vault, search, {
         title: optStr(p.title),
-        content: optStr(p.content) ?? message,
+        content: optStr(p.content),
         file_path: optStr(p.file_path),
+        raw_id: optStr(p.raw_id),
+        skip_raw: p.skip_raw === true || Boolean(optStr(p.raw_id)),
         project_root: projectRoot,
         run_lint: p.run_lint !== false,
         lint_deep: p.deep === true || p.lint_deep === true,

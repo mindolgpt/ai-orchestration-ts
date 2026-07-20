@@ -1,13 +1,47 @@
 /// <reference types="vitest/globals" />
-import { routePrompt, routePromptToTool } from '../src/harness/prompt-router'
+import {
+  extractBrainstormAnswersFromMessage,
+  routePrompt,
+  routePromptToTool,
+} from '../src/harness/prompt-router'
 import { detectStacksFromText } from '../src/harness/stack-playbooks'
 import { ALL_TOOL_IDS, scoreToolMatch, TOOL_KEYWORDS } from '../src/harness/tool-keywords'
 
 describe('keyword routePrompt — harness', () => {
-  test('하네스 keyword', () => {
-    const r = routePrompt('하네스 좀')
+  test('brainstorm topic does not leave _design remnant', () => {
+    const r = routePrompt('brainstorm_design MCP 버그 수정과 clarifying answers')
+    expect(r.tool).toBe('brainstorm_design')
+    expect(String(r.extracted_params?.topic)).not.toMatch(/^_/)
+    expect(String(r.extracted_params?.topic)).toMatch(/MCP|버그|clarifying/i)
+  })
+
+  test('bare design follow-up extracts phase answer', () => {
+    expect(extractBrainstormAnswersFromMessage('design')).toEqual({ phase: 'design' })
+    expect(extractBrainstormAnswersFromMessage('phase: build')).toEqual({ phase: 'build' })
+    expect(extractBrainstormAnswersFromMessage('결제 UX 디자인 방향')).toEqual({})
+    const r = routePromptToTool('design', 'brainstorm_design')
+    expect(r.extracted_params?.answers).toMatchObject({ phase: 'design' })
+  })
+
+  test('brainstorm keyword does not substring-match tool id only noise', () => {
+    // "brainstorm" alone inside snake_case id is handled via explicit tool-id match
+    const r = routePrompt('please run brainstorm_design')
+    expect(r.tool).toBe('brainstorm_design')
+    expect(String(r.extracted_params?.topic).toLowerCase()).not.toContain('brainstorm_design')
+  })
+
+  test('하네스 구성 keyword', () => {
+    const r = routePrompt('하네스 구성해줘')
     expect(r.tool).toBe('bootstrap_harness')
     expect(r.score).toBeGreaterThan(0)
+  })
+
+  test('bare harness does not false-match', () => {
+    expect(routePrompt('just mention harness in passing').tool).toBe('unknown')
+  })
+
+  test('bare immutable does not route ingest_raw', () => {
+    expect(routePrompt('immutable storage discussion').tool).toBe('unknown')
   })
 
   test('architecture keyword', () => {
@@ -152,6 +186,22 @@ describe('bilingual KO/EN pairs', () => {
   test.each(pairs)('KO %s ↔ EN %s → %s', (ko, en, tool) => {
     expect(routePrompt(ko).tool).toBe(tool)
     expect(routePrompt(en).tool).toBe(tool)
+  })
+})
+
+describe('ingest_pipeline routing safety', () => {
+  test('chat re-ingest command does not set content to message', () => {
+    const r = routePrompt('raw 파일보고 ingest pipeline 다시 해줘')
+    expect(r.tool).toBe('ingest_pipeline')
+    expect(r.extracted_params?.content).toBeUndefined()
+    expect(r.extracted_params?.file_path).toBeUndefined()
+  })
+
+  test('extracts vault raw path and raw_id', () => {
+    const r = routePrompt('ingest pipeline vault/raw/a117f128--foo.md raw_id=a117f128')
+    expect(r.tool).toBe('ingest_pipeline')
+    expect(String(r.extracted_params?.file_path)).toContain('vault/raw/a117f128')
+    expect(r.extracted_params?.raw_id).toBe('a117f128')
   })
 })
 

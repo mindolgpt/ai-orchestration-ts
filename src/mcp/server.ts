@@ -71,7 +71,7 @@ export class MCPServer {
     })
 
     this.server = new McpServer(
-      { name: 'aio-orchestrator', version: '2.12.0' },
+      { name: 'aio-orchestrator', version: '2.14.0' },
       { capabilities: { tools: {} } }
     )
 

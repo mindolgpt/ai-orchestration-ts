@@ -67,8 +67,6 @@ export const TOOL_KEYWORDS: ToolKeywordDef[] = [
     id: 'bootstrap_harness',
     category: 'harness',
     keywords: [
-      '하네스',
-      'harness',
       'agents.md',
       'cursor rule',
       'cursor hooks',
@@ -77,6 +75,8 @@ export const TOOL_KEYWORDS: ToolKeywordDef[] = [
       'bootstrap_harness',
       'bootstrap harness',
       'setup harness',
+      '하네스 구성',
+      '하네스 설정',
       '에이전트 규칙',
       'agent rules',
       'generate agents.md',
@@ -88,9 +88,10 @@ export const TOOL_KEYWORDS: ToolKeywordDef[] = [
       /set\s*up\s+(the\s+)?harness/i,
       /에이전트\s*규칙/i,
       /(generate|create|setup)\s+agents\.md/i,
-      /cursor\s+hooks?\s*(setup|config|설정)?/i,
+      /cursor\s+hooks?\s*(setup|config|설정)/i,
     ],
     weight: 2,
+    minScore: 6,
     textParam: 'message',
     hint: 'Generate AGENTS.md, Cursor rules/hooks, MCP configs',
   },
@@ -315,7 +316,6 @@ export const TOOL_KEYWORDS: ToolKeywordDef[] = [
       'ingest_raw',
       '원본 저장',
       'raw 저장',
-      'immutable',
       '원문 ingest',
       'store raw',
       'ingest raw',
@@ -323,7 +323,7 @@ export const TOOL_KEYWORDS: ToolKeywordDef[] = [
       'raw에 저장',
     ],
     patterns: [/save\s+to\s+raw/i, /raw에\s*저장/i, /store\s+(in\s+|to\s+)?raw/i],
-    minScore: 4,
+    minScore: 5,
     textParam: 'title',
     hint: 'Store immutable original under vault/raw/',
   },
@@ -370,24 +370,23 @@ export const TOOL_KEYWORDS: ToolKeywordDef[] = [
       '문서 ingest',
       'raw wiki lint',
       'ingest 파이프라인',
-      '원본 위키',
       'run ingest',
-      '인제스트',
       'ingest document',
       'ingest this document',
+      '이 문서 인제스트',
     ],
     patterns: [
       /ingest\s*pipeline/i,
       /(raw|원본).*(wiki|위키).*(lint|ingest)/i,
-      /run\s+(the\s+)?ingest/i,
+      /run\s+(the\s+)?ingest(\s+pipeline)?/i,
       /ingest\s+(this\s+)?(document|file|doc)/i,
       /이\s*문서\s*인제스트/i,
-      /인제스트/i,
+      /문서\s*인제스트/i,
     ],
-    minScore: 4,
+    minScore: 6,
     weight: 3,
     textParam: 'title',
-    hint: 'raw → wiki concept(s) → lint in one flow',
+    hint: 'raw → wiki concept(s) → lint. Needs file_path, raw_id, or substantial content — not chat text alone.',
   },
   {
     id: 'update_wiki_page',
@@ -1044,12 +1043,16 @@ export const TOOL_KEYWORDS: ToolKeywordDef[] = [
 
 export const ALL_TOOL_IDS = TOOL_KEYWORDS.map((t) => t.id)
 
-/** Short ASCII tokens need word boundaries to avoid false positives (ui in "build", etc.). */
+/**
+ * ASCII tokens need word boundaries so "brainstorm" does not match inside "brainstorm_design".
+ * Underscore counts as part of the token (snake_case tool ids / identifiers).
+ * Short tokens (≤3) keep the same rule; Korean/mixed keywords still use substring includes.
+ */
 function keywordMatches(lowerText: string, keyword: string): boolean {
   const k = keyword.toLowerCase()
   if (!k) return false
-  if (k.length <= 3 && /^[a-z0-9]+$/i.test(k)) {
-    return new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(k)}(?:[^a-z0-9]|$)`, 'i').test(lowerText)
+  if (/^[a-z0-9]+(?:[\s-][a-z0-9]+)*$/i.test(k)) {
+    return new RegExp(`(?:^|[^a-z0-9_])${escapeRegExp(k)}(?:[^a-z0-9_]|$)`, 'i').test(lowerText)
   }
   return lowerText.includes(k)
 }
@@ -1079,8 +1082,14 @@ export function scoreToolMatch(
   for (const re of def.patterns || []) {
     if (re.test(text)) {
       score += 12
-      matched.push(re.source.slice(0, 40))
+      // Store a marker so extractFreeText can re-apply the pattern (not a literal source string)
+      matched.push(`re:${re.source}`)
     }
+  }
+  // Explicit tool id mention (e.g. "brainstorm_design …") — whole id only
+  if (new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(def.id)}(?:[^a-z0-9]|$)`, 'i').test(text)) {
+    score += Math.max(def.id.length, 8)
+    matched.push(def.id)
   }
 
   if (matched.length === 0) {

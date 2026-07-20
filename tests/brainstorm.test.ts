@@ -36,6 +36,38 @@ describe('detectFocusFromTopic', () => {
 })
 
 describe('brainstormDesign full lifecycle', () => {
+  test('phase alone keeps status questions and drops answered ids', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-brain-phase-'))
+    const vault = new ObsidianVault(path.join(root, 'vault'))
+    await vault.initialize()
+
+    const r = await brainstormDesign(vault, mockSearch(), '위키 기반 ecommerce 개발', {
+      project_root: root,
+      answers: { phase: 'design' },
+      write_docs: false,
+    })
+
+    expect(r.status).toBe('questions')
+    expect(r.clarifying_questions.some((q) => q.id === 'phase')).toBe(false)
+    expect(r.clarifying_questions.some((q) => q.id === 'scale')).toBe(true)
+    expect(r.agent_instructions).toContain('same topic')
+  })
+
+  test('scale+phase returns brief', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-brain-ready-'))
+    const vault = new ObsidianVault(path.join(root, 'vault'))
+    await vault.initialize()
+
+    const r = await brainstormDesign(vault, mockSearch(), '위키 기반 ecommerce 개발', {
+      project_root: root,
+      answers: { phase: 'design', scale: 'mvp' },
+      write_docs: false,
+    })
+
+    expect(r.status).toBe('brief')
+    expect(r.options.length).toBeGreaterThan(0)
+  })
+
   test('returns lenses and planning options', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-brain-full-'))
     const vault = new ObsidianVault(path.join(root, 'vault'))

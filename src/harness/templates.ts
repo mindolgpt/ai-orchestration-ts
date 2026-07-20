@@ -193,6 +193,40 @@ function keywordHookRulesJson(): string {
   return JSON.stringify(rules, null, 2)
 }
 
+/** Shared JS snippet: prefer params-ready calls for destructive ingest tools */
+function keywordHintJsExpr(bestToolExpr = 'best.tool'): string {
+  return `(function () {
+  var t = ${bestToolExpr};
+  var destructive = {
+    ingest_pipeline: 1,
+    ingest_raw: 1,
+    ingest_source: 1,
+    ingest_source_batch: 1,
+    file_back: 1,
+    update_wiki_page: 1,
+    store_knowledge: 1
+  };
+  if (destructive[t]) {
+    return (
+      "aio-mcp keyword match → " +
+      t +
+      ". Call " +
+      t +
+      " with file_path or raw_id (and real document content). Do NOT pass chat text as content. " +
+      "For re-ingest: ingest_pipeline({ raw_id, skip_raw: true, concepts }). " +
+      "Use aio_prompt execute:true only after params are ready."
+    );
+  }
+  return (
+    "aio-mcp keyword match → " +
+    t +
+    ". Call aio_prompt({ message: <user prompt>, execute: true }) or call " +
+    t +
+    " directly with extracted params."
+  );
+})()`
+}
+
 export function cursorBeforePromptHook(): string {
   return `#!/usr/bin/env node
 /**
@@ -238,12 +272,7 @@ const cacheExists = fs.existsSync(".aio/harness-context.json");
 let additional_context = "";
 
 if (best.tool) {
-  additional_context =
-    "aio-mcp keyword match → " +
-    best.tool +
-    ". Call aio_prompt({ message: <user prompt>, execute: true }) or call " +
-    best.tool +
-    " directly with extracted params.";
+  additional_context = ${keywordHintJsExpr('best.tool')};
 } else if (impl.test(prompt) && !cacheExists) {
   additional_context =
     "aio-mcp: Call bootstrap_domain (or run_domain_loop) BEFORE writing code. Or aio_prompt with execute:true.";
@@ -384,12 +413,7 @@ const cacheExists = fs.existsSync(".aio/harness-context.json");
 let additionalContext = "";
 
 if (best.tool) {
-  additionalContext =
-    "aio-mcp keyword match → " +
-    best.tool +
-    ". Call aio_prompt({ message: <user prompt>, execute: true }) or call " +
-    best.tool +
-    " directly with extracted params.";
+  additionalContext = ${keywordHintJsExpr('best.tool')};
 } else if (impl.test(prompt) && !cacheExists) {
   additionalContext =
     "aio-mcp: Call bootstrap_domain (or run_domain_loop) BEFORE writing code. Or aio_prompt with execute:true.";
@@ -509,12 +533,7 @@ const cacheExists = fs.existsSync(".aio/harness-context.json");
 
 let hint = "";
 if (best.tool) {
-  hint =
-    "aio-mcp keyword match → " +
-    best.tool +
-    ". Call aio_prompt({ message, execute: true }) or call " +
-    best.tool +
-    " directly.";
+  hint = ${keywordHintJsExpr('best.tool')};
 } else if (impl.test(prompt) && !cacheExists) {
   hint = "aio-mcp: Call bootstrap_domain (or run_domain_loop) BEFORE writing code.";
 }
@@ -588,13 +607,7 @@ function keywordHint(prompt) {
   const impl = /\\b(구현|만들|작성|추가|리팩|refactor|implement|create|build|fix|api)\\b/i;
   const cacheExists = fs.existsSync(path.join(process.cwd(), ".aio", "harness-context.json"));
   if (best.tool) {
-    return (
-      "aio-mcp keyword match → " +
-      best.tool +
-      ". Call aio_prompt({ message, execute: true }) or call " +
-      best.tool +
-      " directly."
-    );
+    return ${keywordHintJsExpr('best.tool')};
   }
   if (impl.test(prompt) && !cacheExists) {
     return "aio-mcp: Call bootstrap_domain (or run_domain_loop) BEFORE writing code.";

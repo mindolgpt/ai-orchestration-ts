@@ -54,6 +54,13 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
             backend: z.string().optional(),
             mobile: z.string().optional(),
             notes: z.string().optional(),
+            // brainstorm_design / architecture follow-ups
+            phase: z.enum(['discovery', 'design', 'build', 'ship', 'operate']).optional(),
+            consistency: z.enum(['strong', 'eventual', 'mixed']).optional(),
+            traffic: z.enum(['low', 'medium', 'high']).optional(),
+            team_experience: z.string().optional(),
+            constraints: z.string().optional(),
+            preferred_store: z.string().optional(),
           })
           .optional(),
       }),
@@ -64,15 +71,36 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
         : routePrompt(args.message)
       route.extracted_stacks = detectStacksFromText(args.message)
 
+      // Merge router-extracted answers (phase/scale from message) with explicit args
+      const mergedParams = {
+        ...args.params,
+        answers: {
+          ...(typeof route.extracted_params?.answers === 'object'
+            ? (route.extracted_params.answers as Record<string, unknown>)
+            : {}),
+          ...(typeof args.params?.answers === 'object'
+            ? (args.params.answers as Record<string, unknown>)
+            : {}),
+          ...args.answers,
+        },
+      }
+      if (
+        mergedParams.answers &&
+        typeof mergedParams.answers === 'object' &&
+        !Object.keys(mergedParams.answers).length
+      ) {
+        delete (mergedParams as { answers?: unknown }).answers
+      }
+
       const exec = await executePromptRoute(ctx, {
         route,
         message: args.message,
         execute: args.execute,
-        params: args.params,
+        params: mergedParams,
         harness: {
           targets: args.targets,
           force: args.force,
-          answers: args.answers,
+          answers: mergedParams.answers as Record<string, unknown> | undefined,
         },
       })
 

@@ -68,11 +68,19 @@ export async function scanRawInbox(
       if (!stat.isFile()) continue
 
       const title = path.basename(name, path.extname(name)).replace(/[-_]+/g, ' ')
+      const body = await fsPromises.readFile(abs, 'utf-8')
       const result = await ingestPipeline(vault, search, {
         title,
         file_path: abs,
         project_root: projectRoot,
-        concepts: [{ title, subdir: opts?.subdir || 'domain' }],
+        concepts: [
+          {
+            title,
+            subdir: opts?.subdir || 'domain',
+            content: body.slice(0, 8000),
+            summary: title,
+          },
+        ],
         run_lint: opts?.run_lint !== false,
       })
 

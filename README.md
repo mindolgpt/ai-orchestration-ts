@@ -3,7 +3,35 @@
 Parallel AI orchestration MCP server (`aio`).  
 Spawn sessions, run Task DAGs, maintain a knowledge wiki (RAG), and Branch Hunt from Cursor, Claude Code, OpenCode, and other MCP clients.
 
-**Node.js >= 20** · current version **2.12.0**
+**Node.js >= 20** · current version **2.14.0**
+
+### 2.14 — brainstorm multi-turn · keyword routing fixes
+
+| Change | Detail |
+| ------ | ------ |
+| Multi-turn `brainstorm_design` | Brief only after **both** `answers.phase` + `answers.scale` (or `skip_questions`). Already-answered questions are dropped from `clarifying_questions`. |
+| `aio_prompt` answers | Top-level `answers` accepts brainstorm fields (`phase`, `consistency`, `traffic`, …) and merges into the routed tool. |
+| Topic extraction | Stripping `brainstorm` no longer leaves `_design` from `brainstorm_design`; tool ids are removed before free-text extract. |
+| Wiki on clarify | Question-status responses still include wiki citations / context excerpt. |
+| Agent continue hint | Instructions tell the agent to **re-call with the same topic** + merged answers (not use a short reply like `design` as a new topic). |
+
+```json
+// Start
+brainstorm_design({ "topic": "위키 기반 ecommerce MVP 설계" })
+
+// Follow-up (same topic!)
+brainstorm_design({
+  "topic": "위키 기반 ecommerce MVP 설계",
+  "answers": { "phase": "design", "scale": "mvp" }
+})
+
+// Or via router
+aio_prompt({
+  "message": "브레인스토밍 위키 기반 ecommerce MVP 설계",
+  "execute": true,
+  "answers": { "phase": "design", "scale": "mvp" }
+})
+```
 
 ### 2.12 — wiki MR · multi-vault · raw inbox · dashboard
 
@@ -466,6 +494,8 @@ aio_prompt({ "message": "search the wiki for cart", "execute": true })
 Full registry: `list_tool_keywords`.
 
 **`brainstorm_design`** covers the full product lifecycle — planning, UX, visual design, domain, architecture, DB, algorithms, security, testing, DevOps, docs — with wiki-backed option comparison.
+
+**Session flow:** first call returns `status: "questions"` (wiki context included). Collect answers one at a time, then re-call with the **same `topic`** and merged `answers` (`phase` + `scale` required for `status: "brief"`). Bare follow-ups like `design` / `mvp` are parsed when routed explicitly; do not treat them as a new topic.
 
 **Stack playbooks** (`vault/wiki/stacks/`): 37 stacks (React, Next.js, Vue, Spring Boot, FastAPI, Go, Rust, …). List via `list_stack_playbooks`.
 

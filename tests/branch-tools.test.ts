@@ -64,6 +64,12 @@ describe('BranchHunt scan', () => {
     expect(found[0].sessionId).toBeUndefined()
   })
 
+  test('rejects paths outside project root', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-branch-'))
+    const hunt = new BranchHunt(new MessageInbox({ backend: 'memory' }))
+    await expect(hunt.scanPaths(dir, ['../..'], 'low')).rejects.toThrow(/escapes project root/)
+  })
+
   test('collectResults joins by session_id', async () => {
     const inbox = new MessageInbox({ backend: 'memory' })
     const hunt = new BranchHunt(inbox)

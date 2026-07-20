@@ -11,6 +11,7 @@ vi.mock('child_process', async (importOriginal) => {
 
 vi.mock('crypto', () => ({
   randomUUID: vi.fn(() => '00000000-0000-0000-0000-000000000001'),
+  randomBytes: vi.fn(() => Buffer.from('0123456789abcdef0123456789abcdef', 'hex')),
 }))
 
 import {
@@ -92,7 +93,10 @@ describe('spawnSession', () => {
       'opencode',
       ['run', expect.stringContaining('[Session ID]')],
       expect.objectContaining({
-        env: expect.objectContaining({ AIO_SESSION_ID: 'sess_00000000' }),
+        env: expect.objectContaining({
+          AIO_SESSION_ID: 'sess_00000000',
+          AIO_SESSION_SECRET: '0123456789abcdef0123456789abcdef',
+        }),
       })
     )
     expect(result).toMatchObject({
@@ -206,6 +210,32 @@ describe('registerSessionTools', () => {
     const result = await cb({ session_id: 's1', message: 'ping' })
     expect(JSON.parse(result.content[0].text)).toMatchObject({ queued: true, pending_count: 1 })
     expect(sessions.get('s1')?.pendingMessages).toEqual(['ping'])
+  })
+
+  test('report_result requires session_secret when session has secret', async () => {
+    const { server, getCallback } = createMockServer()
+    const sessions = new Map<string, ChildSession>()
+    const inbox = new MessageInbox({ backend: 'memory' })
+    sessions.set('s1', emptySession({ id: 's1', status: 'running', sessionSecret: 'sec123' }))
+    registerSessionTools(server, sessions, inbox, 5)
+
+    const cb = getCallback('report_result')
+    const denied = await cb({
+      session_id: 's1',
+      status: 'completed',
+      summary: 'done',
+    })
+    expect(JSON.parse(denied.content[0].text)).toMatchObject({
+      error: expect.stringContaining('session_secret'),
+    })
+
+    const ok = await cb({
+      session_id: 's1',
+      status: 'completed',
+      summary: 'done',
+      session_secret: 'sec123',
+    })
+    expect(JSON.parse(ok.content[0].text)).toMatchObject({ posted: true })
   })
 
   test('spawn_session callback calls spawnSession', async () => {

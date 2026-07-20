@@ -400,16 +400,24 @@ async function dispatchTool(
       return { queued: true }
     }
 
-    case 'report_result':
-      inbox.post(
-        asStr(p.session_id),
-        `session:${asStr(p.session_id)}`,
-        asStr(p.status, 'completed'),
-        {
-          summary: asStr(p.summary, message),
+    case 'report_result': {
+      const sid = asStr(p.session_id)
+      const s = sessions.get(sid)
+      if (!s) return { error: `Session ${sid} not found` }
+      const secret = optStr(p.session_secret)
+      if (s.sessionSecret && process.env.AIO_ALLOW_REPORT_WITHOUT_SECRET !== '1') {
+        if (secret !== s.sessionSecret) {
+          return { error: 'session_secret required (from spawn prompt / AIO_SESSION_SECRET env)' }
         }
-      )
+      }
+      inbox.post(sid, `session:${sid}`, asStr(p.status, 'completed'), {
+        summary: asStr(p.summary, message),
+      })
+      if (p.status === 'completed' || p.status === 'failed') {
+        s.status = p.status
+      }
       return { posted: true }
+    }
 
     case 'synthesize_results':
       return synthesizeResults(sessions, inbox, dagResults, {
@@ -456,12 +464,16 @@ async function dispatchTool(
         (p.risk as 'low' | 'medium' | 'high' | 'critical') || 'high'
       )
 
-    case 'resolve_approval':
-      return approval.resolve(
-        asStr(p.approval_id),
-        p.approved !== false,
-        asStr(p.resolver, 'human')
-      )
+    case 'resolve_approval': {
+      const approved = p.approved === true
+      const rejected = p.approved === false
+      if (!approved && !rejected) {
+        return { error: 'resolve_approval requires explicit approved:true or approved:false' }
+      }
+      return approval.resolve(asStr(p.approval_id), approved, asStr(p.resolver, 'human'), {
+        confirmCode: typeof p.confirm_code === 'string' ? p.confirm_code : undefined,
+      })
+    }
 
     case 'list_approvals':
       return {

@@ -16,6 +16,12 @@ import { rawInboxDir, ensureRawInbox, scanRawInbox } from '@/knowledge/raw-inbox
 import { resolveIndexDir, resolveProjectRoot } from '@/knowledge/paths'
 import { getEventLog, type OrchestratorEvent } from '@/observability/events'
 import { runDoctor } from '@/doctor/check'
+import {
+  resolveDashboardAuthRequirement,
+  assertDashboardAuthorized,
+  assertDashboardMutationAllowed,
+} from '@/security/dashboard-auth'
+import { readLimitedJsonBody } from '@/security/http-auth'
 
 const TEXT_EXT = new Set(['.md', '.txt', '.json', '.yaml', '.yml', '.csv', '.xml', '.html', '.htm'])
 
@@ -298,7 +304,7 @@ function dashboardHtml(stats: DashboardStats): string {
   const cmd = stats.commands
 
   return `<!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -473,36 +479,6 @@ function dashboardHtml(stats: DashboardStats): string {
 </html>`
 }
 
-function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const chunks: Uint8Array[] = []
-    req.on('data', (c: string | Buffer) => {
-      chunks.push(typeof c === 'string' ? Buffer.from(c) : new Uint8Array(c))
-    })
-    req.on('end', () => {
-      if (!chunks.length) {
-        resolve({})
-        return
-      }
-      try {
-        const raw = Buffer.concat(chunks).toString('utf-8')
-        resolve(JSON.parse(raw) as Record<string, unknown>)
-      } catch (e) {
-        reject(e instanceof Error ? e : new Error(String(e)))
-      }
-    })
-    req.on('error', reject)
-  })
-}
-
-function isLocalHost(hostHeader: string | undefined, boundHost: string): boolean {
-  if (boundHost === '127.0.0.1' || boundHost === 'localhost' || boundHost === '::1') {
-    return true
-  }
-  const h = (hostHeader || '').split(':')[0].toLowerCase()
-  return h === '127.0.0.1' || h === 'localhost' || h === '::1'
-}
-
 function sendJson(res: ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(data, null, 2))
@@ -523,6 +499,7 @@ export async function startDashboardServer(opts: DashboardServerOptions): Promis
   const host = opts.host || '127.0.0.1'
   const port = opts.port || 8920
   const projectRoot = opts.projectRoot || resolveProjectRoot()
+  const { token, requireAuth } = resolveDashboardAuthRequirement(host)
   await opts.vault.initialize()
 
   const search =
@@ -533,34 +510,35 @@ export async function startDashboardServer(opts: DashboardServerOptions): Promis
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     void (async () => {
-      const url = req.url?.split('?')[0] || '/'
+      const urlPath = req.url?.split('?')[0] || '/'
       const method = (req.method || 'GET').toUpperCase()
+      const url = new URL(req.url || '/', `http://${req.headers.host || host}`)
 
       try {
-        if (method === 'GET' && (url === '/api/stats' || url === '/api/dashboard')) {
+        if (method === 'GET' && urlPath === '/health') {
+          sendJson(res, 200, { ok: true })
+          return
+        }
+
+        if (requireAuth) {
+          assertDashboardAuthorized(req, url, token, true)
+        }
+
+        if (method === 'GET' && (urlPath === '/api/stats' || urlPath === '/api/dashboard')) {
           sendJson(res, 200, await collectDashboardStats(opts.vault, projectRoot, search))
           return
         }
 
-        if (method === 'GET' && url === '/api/events') {
+        if (method === 'GET' && urlPath === '/api/events') {
           const events = await getEventLog(projectRoot).recentAsync(100)
           sendJson(res, 200, { events })
           return
         }
 
-        if (method === 'GET' && url === '/health') {
-          res.writeHead(200, { 'Content-Type': 'text/plain' })
-          res.end('ok')
-          return
-        }
-
         if (method === 'POST') {
-          if (!isLocalHost(req.headers.host, host)) {
-            sendJson(res, 403, { error: 'Dashboard mutations allowed only on localhost' })
-            return
-          }
+          assertDashboardMutationAllowed(req, url, token, requireAuth)
 
-          if (url === '/api/scan-inbox') {
+          if (urlPath === '/api/scan-inbox') {
             const result = await scanRawInbox(opts.vault, search, {
               project_root: projectRoot,
               subdir: 'domain',
@@ -573,7 +551,7 @@ export async function startDashboardServer(opts: DashboardServerOptions): Promis
             return
           }
 
-          const applyMatch = url.match(/^\/api\/proposals\/([^/]+)\/apply$/)
+          const applyMatch = urlPath.match(/^\/api\/proposals\/([^/]+)\/apply$/)
           if (applyMatch) {
             const id = decodeURIComponent(applyMatch[1])
             const result = await applyWikiProposal(
@@ -586,10 +564,10 @@ export async function startDashboardServer(opts: DashboardServerOptions): Promis
             return
           }
 
-          const rejectMatch = url.match(/^\/api\/proposals\/([^/]+)\/reject$/)
+          const rejectMatch = urlPath.match(/^\/api\/proposals\/([^/]+)\/reject$/)
           if (rejectMatch) {
             const id = decodeURIComponent(rejectMatch[1])
-            const body = await readJsonBody(req)
+            const body = await readLimitedJsonBody(req)
             const reason = typeof body.reason === 'string' ? body.reason : undefined
             const result = await rejectWikiProposal(
               id,
@@ -600,11 +578,11 @@ export async function startDashboardServer(opts: DashboardServerOptions): Promis
             return
           }
 
-          sendJson(res, 404, { error: `Unknown POST route: ${url}` })
+          sendJson(res, 404, { error: `Unknown POST route: ${urlPath}` })
           return
         }
 
-        if (method === 'GET' && url === '/') {
+        if (method === 'GET' && urlPath === '/') {
           const stats = await collectDashboardStats(opts.vault, projectRoot, search)
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
           res.end(dashboardHtml(stats))
@@ -613,7 +591,10 @@ export async function startDashboardServer(opts: DashboardServerOptions): Promis
 
         sendJson(res, 404, { error: 'Not Found' })
       } catch (err) {
-        sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
+        const status = (err as { statusCode?: number }).statusCode || 500
+        sendJson(res, status, {
+          error: err instanceof Error ? err.message : String(err),
+        })
       }
     })()
   })

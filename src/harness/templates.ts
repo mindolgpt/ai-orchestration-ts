@@ -19,28 +19,28 @@ export function projectAgentsMd(profile: DomainProfile): string {
 ## Before any implementation
 
 1. **Keyword routing**: any message with domain keywords (wiki, session, harness, dag, …) → call **\`aio_prompt({ message, execute: true })\`** — matches all MCP tools.
-2. Examples: \`wiki 검색 장바구니\`, \`세션 띄워 API 만들어\`, \`TODO 스캔\`, \`wiki lint\`, \`plan task 결제\`
+2. Examples (KO / EN): \`wiki 검색 장바구니\` / \`search the wiki for cart\`, \`세션 띄워 API\` / \`spawn a session\`, \`TODO 스캔\` / \`scan for TODOs\`, \`wiki lint\` / \`lint the wiki\`, \`plan task\` / \`작업 계획\`
 3. Call MCP **\`bootstrap_domain\`** with the user's task (or **\`run_domain_loop\`** for full loop brief).
-3. Read returned wiki pages and **cite** \`[[page-title]]\` in your plan.
-4. Call **\`plan_task\`** for multi-step work; **\`execute_dag\`** when tasks are independent.
-5. After durable decisions, **\`file_back\`** into the wiki.
-6. Run **\`lint_wiki\`** when wiki structure may have changed.
+4. Read returned wiki pages and **cite** \`[[page-title]]\` in your plan.
+5. Call **\`plan_task\`** for multi-step work; **\`execute_dag\`** when tasks are independent.
+6. After durable decisions, **\`file_back\`** into the wiki.
+7. Run **\`lint_wiki\`** when wiki structure may have changed.
 
 ## Natural-language (keyword) commands
 
-All tools route via **\`aio_prompt\`**. You do NOT need exact phrases like "하네스 구성해줘" — keywords are enough.
+All tools route via **\`aio_prompt\`**. Korean and English aliases both work — you do not need one fixed phrase.
 
-| Keywords in message | Tool |
-|---------------------|------|
-| 하네스, harness, mcp 설정 | \`bootstrap_harness\` |
-| 아키텍처, architecture | \`design_architecture\` |
-| wiki 검색, 위키 | \`query_wiki\` |
-| wiki lint, 위키 점검 | \`lint_wiki\` |
-| 세션, spawn session | \`spawn_session\` |
-| inbox, 인박스 | \`check_inbox\` |
-| plan, 계획 | \`plan_task\` |
-| TODO, scan issues | \`scan_issues\` |
-| recall, 지식 검색 | \`recall_knowledge\` |
+| Keywords (KO / EN) | Tool |
+|--------------------|------|
+| 하네스 / harness, bootstrap harness | \`bootstrap_harness\` |
+| 아키텍처 / architecture design | \`design_architecture\` |
+| wiki 검색 / search the wiki | \`query_wiki\` |
+| wiki lint / lint the wiki | \`lint_wiki\` |
+| 세션 띄 / spawn a session | \`spawn_session\` |
+| 인박스 / check my inbox | \`check_inbox\` |
+| 작업 계획 / plan task | \`plan_task\` |
+| TODO 스캔 / scan for TODOs | \`scan_issues\` |
+| 지식 검색 / recall knowledge | \`recall_knowledge\` |
 
 Full list: \`list_tool_keywords\`
 

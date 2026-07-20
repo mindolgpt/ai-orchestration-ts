@@ -135,6 +135,10 @@ function buildParams(
       break
     case 'resolve_approval':
       params.approved = !/\b(거부|reject|deny|반려)\b/i.test(message)
+      {
+        const code = message.match(/\b(?:confirm[_ ]?code|코드)[:\s]*([a-f0-9]{16})\b/i)
+        if (code) params.confirm_code = code[1]
+      }
       break
     case 'get_events':
       params.limit = 50

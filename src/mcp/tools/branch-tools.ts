@@ -29,37 +29,50 @@ export function registerBranchTools(
       }),
     },
     async (args) => {
-      if (args.clear) branchHunt.clear()
-      const found = await branchHunt.scanPaths(root, args.paths, args.severity || 'low')
-      let spawned = 0
-      if (args.spawn_fixes) {
-        const before = branchHunt.getIssues().filter((i) => i.sessionId).length
-        await branchHunt.spawnFixes(sessions, maxSessions, {
-          wait: args.wait,
-          timeoutMs: 120_000,
-          worktree: args.worktree,
-          runtime: args.runtime,
-        })
-        spawned = branchHunt.getIssues().filter((i) => i.sessionId).length - before
-      }
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              found: found.length,
-              spawned,
-              issues: branchHunt.getIssues().map((i) => ({
-                id: i.id,
-                description: i.description,
-                file: i.file,
-                severity: i.severity,
-                session_id: i.sessionId,
-                resolved: i.resolved,
-              })),
-            }),
-          },
-        ],
+      try {
+        if (args.clear) branchHunt.clear()
+        const found = await branchHunt.scanPaths(root, args.paths, args.severity || 'low')
+        let spawned = 0
+        if (args.spawn_fixes) {
+          const before = branchHunt.getIssues().filter((i) => i.sessionId).length
+          await branchHunt.spawnFixes(sessions, maxSessions, {
+            wait: args.wait,
+            timeoutMs: 120_000,
+            worktree: args.worktree,
+            runtime: args.runtime,
+          })
+          spawned = branchHunt.getIssues().filter((i) => i.sessionId).length - before
+        }
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                found: found.length,
+                spawned,
+                issues: branchHunt.getIssues().map((i) => ({
+                  id: i.id,
+                  description: i.description,
+                  file: i.file,
+                  severity: i.severity,
+                  session_id: i.sessionId,
+                  resolved: i.resolved,
+                })),
+              }),
+            },
+          ],
+        }
+      } catch (err) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                error: err instanceof Error ? err.message : String(err),
+              }),
+            },
+          ],
+        }
       }
     }
   )

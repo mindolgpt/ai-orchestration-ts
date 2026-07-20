@@ -1,4 +1,5 @@
 import { OpenAI } from 'openai'
+import { assertTrustedLocalEmbeddingModel } from '@/security/embedding-model'
 
 export interface Embedder {
   embed(texts: string[]): Promise<number[][]>
@@ -41,10 +42,13 @@ export class LocalEmbedder implements Embedder {
   public dimension: number = 384
   private pipeline: FeatureExtractionPipeline | null = null
 
-  constructor(private modelName = 'Xenova/multilingual-e5-small') {}
+  constructor(private modelName = 'Xenova/multilingual-e5-small') {
+    assertTrustedLocalEmbeddingModel(this.modelName)
+  }
 
   private async loadPipeline() {
     if (this.pipeline) return
+    assertTrustedLocalEmbeddingModel(this.modelName)
     const { pipeline } = await import('@xenova/transformers')
     this.pipeline = (await pipeline(
       'feature-extraction',

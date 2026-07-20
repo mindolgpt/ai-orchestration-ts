@@ -23,6 +23,7 @@ import {
 } from '@/mcp/tools'
 import { registerOpsTools } from '@/mcp/tools/ops-tools'
 import { registerHarnessTools } from '@/mcp/tools/harness-tools'
+import { assertSseAuthorized, resolveSseAuthRequirement } from '@/security/sse-auth'
 
 export interface MCPServerOptions {
   maxSessions?: number
@@ -55,7 +56,11 @@ export class MCPServer {
     this.vault = new ObsidianVault(this.vaultRoot)
 
     const embedder = createEmbedder()
-    this.search = new SemanticSearch(embedder, resolveIndexDir(this.vaultRoot))
+    this.search = new SemanticSearch(embedder, {
+      indexDir: resolveIndexDir(this.vaultRoot),
+      vaultRoot: this.vaultRoot,
+      collectionHint: process.env.AIO_VAULT_NAME,
+    })
     this.branchHunt = new BranchHunt(this.inbox)
     this.approval = new ApprovalGate(this.projectRoot)
     void this.approval.load()
@@ -121,10 +126,26 @@ export class MCPServer {
   }
 
   async runSSE(host = '127.0.0.1', port = 8910): Promise<void> {
+    const { token, requireAuth } = resolveSseAuthRequirement(host)
     const transports = new Map<string, SSEServerTransport>()
 
     const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
       const url = new URL(req.url || '/', `http://${req.headers.host}`)
+
+      if (req.method === 'GET' && url.pathname === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ status: 'ok' }))
+        return
+      }
+
+      try {
+        assertSseAuthorized(req, url, token, requireAuth)
+      } catch (err) {
+        const status = (err as { statusCode?: number }).statusCode || 401
+        res.writeHead(status, { 'Content-Type': 'text/plain' })
+        res.end('Unauthorized')
+        return
+      }
 
       if (req.method === 'GET' && url.pathname === '/sse') {
         const transport = new SSEServerTransport('/messages', res)
@@ -145,20 +166,6 @@ export class MCPServer {
           return
         }
         await transport.handlePostMessage(req, res)
-        return
-      }
-
-      if (req.method === 'GET' && url.pathname === '/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(
-          JSON.stringify({
-            status: 'ok',
-            sessions: transports.size,
-            projectRoot: this.projectRoot,
-            vaultRoot: this.vaultRoot,
-            inbox: this.inbox.backendName,
-          })
-        )
         return
       }
 
@@ -185,6 +192,9 @@ export class MCPServer {
     })
 
     console.error(`[MCP] aio-orchestrator SSE server listening on http://${host}:${port}/sse`)
+    if (requireAuth) {
+      console.error('[MCP] SSE auth enabled (Bearer / X-Aio-Token / ?token=)')
+    }
     console.error(`[MCP] project root: ${this.projectRoot}`)
     console.error(`[MCP] vault root: ${this.vaultRoot}`)
 

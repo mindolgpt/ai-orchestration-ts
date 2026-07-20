@@ -2,6 +2,7 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import yaml from 'js-yaml'
 import { resolveProjectRoot } from '@/knowledge/paths'
+import { isPathInsideRoot } from '@/security/path-containment'
 
 export interface VaultEntry {
   name: string
@@ -96,6 +97,16 @@ export async function registerVault(
   projectRoot?: string
 ): Promise<VaultRegistry> {
   const root = projectRoot || resolveProjectRoot()
+  const vaultPath = path.isAbsolute(opts.path)
+    ? path.resolve(opts.path)
+    : path.join(root, opts.path)
+  const allowExternal = process.env.AIO_ALLOW_EXTERNAL_VAULT_PATH === '1'
+  if (path.isAbsolute(opts.path) && !isPathInsideRoot(root, vaultPath) && !allowExternal) {
+    throw new Error(
+      `Vault path must be under project root (${root}) or relative. ` +
+        `Got: ${opts.path}. Set AIO_ALLOW_EXTERNAL_VAULT_PATH=1 to register external vaults.`
+    )
+  }
   const reg = await loadVaultRegistry(root)
   reg.vaults[opts.name] = {
     path: opts.path,

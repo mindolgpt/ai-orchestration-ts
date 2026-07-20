@@ -1,57 +1,61 @@
-import * as fs from 'fs/promises'
 import * as path from 'path'
 import { KnowledgeDoc, SearchResult } from '@/knowledge/types'
-import {
-  FaissIndex,
-  FaissIndexFlatIPCtor,
-  cosineSimilarity,
-  loadFaissIndexFlatIP,
-} from '@/knowledge/faiss'
+import { cosineSimilarity } from '@/knowledge/faiss'
 import { toPosixPath } from '@/knowledge/paths'
+import { createEmbedder, Embedder } from '@/knowledge/embedder'
+import { createVectorStore, resolveVectorStoreKind, VectorStore } from '@/knowledge/vector-store'
 
 function normalizeDocPath(docPath: string): string {
   return toPosixPath(docPath).replace(/\.md$/, '')
 }
 
+export interface SemanticSearchOptions {
+  indexDir?: string
+  vaultRoot?: string
+  collectionHint?: string
+  store?: VectorStore
+}
+
 export class SemanticSearch {
-  private index: FaissIndex | null = null
-  private IndexFlatIP: FaissIndexFlatIPCtor | null = null
-  private documents: KnowledgeDoc[] = []
+  private store: VectorStore
   private indexDir: string
+  private ready = false
+  private docsByPath = new Map<string, KnowledgeDoc>()
 
   constructor(
     private embedder: { embed: (texts: string[]) => Promise<number[][]>; dimension: number },
-    indexPath: string = './vault/.index'
+    indexPathOrOpts: string | SemanticSearchOptions = './vault/.index'
   ) {
-    this.indexDir = path.resolve(indexPath)
-  }
-
-  private async ensureIndex(): Promise<void> {
-    if (this.index) return
-    this.IndexFlatIP = await loadFaissIndexFlatIP()
-    await fs.mkdir(this.indexDir, { recursive: true })
-
-    const indexFile = path.join(this.indexDir, 'index.faiss')
-    const metaFile = path.join(this.indexDir, 'meta.json')
-
-    try {
-      this.index = this.IndexFlatIP.read(indexFile)
-      const meta = JSON.parse(await fs.readFile(metaFile, 'utf-8')) as KnowledgeDoc[]
-      this.documents = meta
-    } catch {
-      this.index = new this.IndexFlatIP(this.embedder.dimension)
-      this.documents = []
+    if (typeof indexPathOrOpts === 'string') {
+      this.indexDir = path.resolve(indexPathOrOpts)
+      this.store = createVectorStore({
+        indexDir: this.indexDir,
+        vaultRoot: path.dirname(this.indexDir),
+      })
+    } else {
+      this.indexDir = path.resolve(indexPathOrOpts.indexDir || './vault/.index')
+      this.store =
+        indexPathOrOpts.store ||
+        createVectorStore({
+          indexDir: this.indexDir,
+          vaultRoot: indexPathOrOpts.vaultRoot || path.dirname(this.indexDir),
+          collectionHint: indexPathOrOpts.collectionHint,
+        })
     }
   }
 
-  private async rebuildIndexFromDocuments(): Promise<void> {
-    if (!this.IndexFlatIP) this.IndexFlatIP = await loadFaissIndexFlatIP()
-    this.index = new this.IndexFlatIP(this.embedder.dimension)
-    if (!this.documents.length) return
-    const embeddings = await this.embedder.embed(this.documents.map((d) => d.content))
-    for (const emb of embeddings) {
-      this.index.add(new Float32Array(emb))
-    }
+  get storeKind(): string {
+    return this.store.kind
+  }
+
+  private async ensureStore(): Promise<void> {
+    if (this.ready) return
+    await this.store.ensureReady(this.embedder.dimension)
+    const docs = await this.store.listDocuments()
+    this.docsByPath.clear()
+    for (const d of docs) this.docsByPath.set(normalizeDocPath(d.path), d)
+    this._cachedCount = docs.length
+    this.ready = true
   }
 
   async addDocument(
@@ -60,25 +64,37 @@ export class SemanticSearch {
     content: string,
     tags?: string[]
   ): Promise<void> {
-    await this.ensureIndex()
+    await this.ensureStore()
     if (!content.trim()) return
 
     const norm = normalizeDocPath(docPath)
-    const existingIdx = this.documents.findIndex((d) => normalizeDocPath(d.path) === norm)
+    const prev = this.docsByPath.get(norm)
     const doc: KnowledgeDoc = {
       path: docPath,
       title,
       tags: tags || [],
       links: [],
       content,
-      createdAt:
-        existingIdx >= 0 ? this.documents[existingIdx].createdAt : new Date().toISOString(),
+      createdAt: prev?.createdAt || new Date().toISOString(),
     }
 
-    if (existingIdx >= 0) {
-      this.documents[existingIdx] = doc
+    if (prev) {
+      // Path update: re-embed all docs (FAISS IndexFlatIP has no point delete)
+      const next = [...this.docsByPath.values()].map((d) =>
+        normalizeDocPath(d.path) === norm ? doc : d
+      )
       try {
-        await this.rebuildIndexFromDocuments()
+        const embeddings = await this.embedder.embed(next.map((d) => d.content))
+        await this.store.replaceAll(
+          next.map((d, i) => ({
+            id: normalizeDocPath(d.path),
+            vector: embeddings[i],
+            document: d,
+          }))
+        )
+        this.docsByPath.clear()
+        for (const d of next) this.docsByPath.set(normalizeDocPath(d.path), d)
+        this._cachedCount = next.length
       } catch (err) {
         console.error('Index rebuild failed:', err)
       }
@@ -86,49 +102,53 @@ export class SemanticSearch {
     }
 
     const emb = await this.embedder.embed([content])
-    const vec = new Float32Array(emb[0])
-
     try {
-      this.index!.add(vec)
+      await this.store.upsert([{ id: norm, vector: emb[0], document: doc }])
+      this.docsByPath.set(norm, doc)
+      this._cachedCount = this.docsByPath.size
     } catch (err) {
       console.error('Index add failed:', err)
     }
-    this.documents.push(doc)
   }
 
   /** Exposed for tests — number of indexed documents (after dedupe). */
   get documentCount(): number {
-    return this.documents.length
+    // Sync getter: prefer last-known via blocking not possible; tests call after await ops.
+    // Use cached sync snapshot updated in ensure — fall back to 0 until loaded.
+    return this._cachedCount
+  }
+
+  private _cachedCount = 0
+
+  private async refreshCount(): Promise<void> {
+    this._cachedCount = await this.store.count()
   }
 
   async search(query: string, topK: number = 10): Promise<SearchResult[]> {
-    await this.ensureIndex()
-    if (this.documents.length === 0) return []
+    await this.ensureStore()
+    await this.refreshCount()
+    if (this._cachedCount === 0) return []
 
     const qEmb = await this.embedder.embed([query])
-    const qVec = new Float32Array(qEmb[0])
+    const qVec = qEmb[0]
 
     try {
-      const { distances, indices } = this.index!.search(qVec, Math.min(topK, this.documents.length))
-      const results: SearchResult[] = []
-      for (let i = 0; i < indices.length; i++) {
-        const idx = indices[i]
-        if (idx < 0 || idx >= this.documents.length) continue
-        const doc = this.documents[idx]
-        results.push({
-          path: doc.path,
-          title: doc.title,
-          score: distances[i],
-          snippet: doc.content.slice(0, 200),
-          tags: doc.tags,
-        })
-      }
-      return results
+      const hits = await this.store.search(qVec, topK)
+      await this.refreshCount()
+      return hits.map((h) => ({
+        path: h.document.path,
+        title: h.document.title,
+        score: h.score,
+        snippet: h.document.content.slice(0, 200),
+        tags: h.document.tags,
+      }))
     } catch {
+      // Cosine fallback over listed documents (offline / store errors)
+      const docs = await this.store.listDocuments()
       const results: SearchResult[] = []
-      for (const doc of this.documents) {
+      for (const doc of docs) {
         const docEmb = await this.embedder.embed([doc.content])
-        const score = cosineSimilarity(qVec, new Float32Array(docEmb[0]))
+        const score = cosineSimilarity(new Float32Array(qVec), new Float32Array(docEmb[0]))
         results.push({
           path: doc.path,
           title: doc.title,
@@ -143,12 +163,10 @@ export class SemanticSearch {
   }
 
   async save(): Promise<void> {
-    await this.ensureIndex()
+    await this.ensureStore()
     try {
-      const indexFile = path.join(this.indexDir, 'index.faiss')
-      const metaFile = path.join(this.indexDir, 'meta.json')
-      await this.index!.write(indexFile)
-      await fs.writeFile(metaFile, JSON.stringify(this.documents, null, 2), 'utf-8')
+      await this.store.persist()
+      await this.refreshCount()
     } catch (err) {
       console.error('Failed to save index:', err)
       throw err
@@ -156,6 +174,23 @@ export class SemanticSearch {
   }
 
   async load(): Promise<void> {
-    await this.ensureIndex()
+    await this.ensureStore()
+    await this.refreshCount()
   }
 }
+
+/** Factory: local FAISS by default; set VECTOR_STORE=qdrant (+ QDRANT_URL) for remote. */
+export function createSemanticSearch(
+  vaultRoot: string,
+  embedder?: Embedder,
+  opts?: { collectionHint?: string }
+): SemanticSearch {
+  const indexDir = path.join(path.resolve(vaultRoot), '.index')
+  return new SemanticSearch(embedder || createEmbedder(), {
+    indexDir,
+    vaultRoot: path.resolve(vaultRoot),
+    collectionHint: opts?.collectionHint,
+  })
+}
+
+export { resolveVectorStoreKind }

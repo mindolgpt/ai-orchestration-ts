@@ -45,16 +45,16 @@ const program = new Command()
 
 program
   .name('aio')
-  .description('AI Orchestration System - 병렬 AI 오케스트레이션 CLI')
+  .description('AI Orchestration System — parallel AI orchestration CLI')
   .version('2.12.0')
 
 program
   .command('init')
-  .option('--vault <path>', 'Obsidian vault 경로 (기본: <프로젝트>/vault)')
-  .option('--model <model>', '임베딩 모델', 'text-embedding-3-small')
-  .description('프로젝트 초기화 - vault 생성, 임베딩 인덱스 준비')
+  .option('--vault <path>', 'Obsidian vault path (default: <project>/vault)')
+  .option('--model <model>', 'Embedding model', 'text-embedding-3-small')
+  .description('Initialize project — create vault and embedding index')
   .action(async (options: InitOptions) => {
-    console.log(chalk.bold.cyan('\n🚀 AI Orchestration System 초기화'))
+    console.log(chalk.bold.cyan('\n🚀 AI Orchestration System — init'))
 
     const projectRoot = resolveProjectRoot()
     const vaultPath = resolveVaultRoot(options.vault)
@@ -65,24 +65,24 @@ program
     console.log(`  ✓ Layers: raw/ + wiki/ + AGENTS.md (schema)`)
 
     const embedder = createEmbedder()
-    console.log(`  ✓ 임베딩 모델: ${process.env.EMBEDDING_MODEL || 'auto'}`)
+    console.log(`  ✓ Embedding model: ${process.env.EMBEDDING_MODEL || 'auto'}`)
 
     const indexDir = resolveIndexDir(vaultPath)
     const search = new SemanticSearch(embedder, indexDir)
     await search.save()
-    console.log(`  ✓ 검색 인덱스: ${indexDir}`)
+    console.log(`  ✓ Search index: ${indexDir}`)
 
-    console.log(chalk.green('\n초기화 완료!'))
-    console.log(chalk.dim('  다음: aio bootstrap-harness → aio doctor'))
+    console.log(chalk.green('\nInit complete!'))
+    console.log(chalk.dim('  Next: aio bootstrap-harness → aio doctor'))
   })
 
 program
   .command('doctor')
-  .option('--vault <path>', 'Obsidian vault 경로')
-  .option('--json', 'JSON 출력', false)
-  .option('--fail', 'fail/warn 있으면 exit 1 (CI)', false)
-  .option('--skip-embed-test', '임베딩 스모크 테스트 생략', false)
-  .description('프로젝트 온보딩·헬스 진단 (5분 체크리스트 검증)')
+  .option('--vault <path>', 'Obsidian vault path')
+  .option('--json', 'JSON output', false)
+  .option('--fail', 'Exit 1 if any check has severity fail (CI; warns do not fail)', false)
+  .option('--skip-embed-test', 'Skip embedding smoke test', false)
+  .description('Onboarding and health diagnostics (5-minute checklist)')
   .action(
     async (options: {
       vault?: string
@@ -145,20 +145,20 @@ program
 
 program
   .command('bootstrap-harness')
-  .option('--vault <path>', 'Obsidian vault 경로')
-  .option('--force', '기존 하네스 파일 덮어쓰기', false)
+  .option('--vault <path>', 'Obsidian vault path')
+  .option('--force', 'Overwrite existing harness files', false)
   .option(
     '--targets <list>',
-    'cursor,claude,opencode,codex,windsurf,continue,all — 생략 시 AI 도구 자동 감지(1개)',
+    'cursor,claude,opencode,codex,windsurf,continue,all — omit to auto-detect one AI tool',
     undefined
   )
-  .option('--domain <name>', '도메인 이름 (profile)')
-  .option('--description <text>', '도메인 설명')
-  .option('--backend <stack>', '예: spring-boot')
-  .option('--frontend <stack>', '예: react')
-  .option('--prune-foreign', '다른 AI 도구 harness 파일 삭제', false)
-  .option('--dry-run-prune', 'prune-foreign 미리보기만', false)
-  .description('wiki 기반 도메인 하네스 생성 (AGENTS.md, Cursor rules/hooks, MCP 설정)')
+  .option('--domain <name>', 'Domain name (profile)')
+  .option('--description <text>', 'Domain description')
+  .option('--backend <stack>', 'e.g. spring-boot')
+  .option('--frontend <stack>', 'e.g. react')
+  .option('--prune-foreign', 'Delete harness files for other AI tools', false)
+  .option('--dry-run-prune', 'Preview prune-foreign only', false)
+  .description('Generate wiki-based domain harness (AGENTS.md, rules/hooks, MCP config)')
   .action(
     async (options: {
       vault?: string
@@ -215,13 +215,13 @@ program
 
 program
   .command('ingest')
-  .option('--vault <path>', 'Obsidian vault 경로')
-  .option('--file <path>', '원본 텍스트 파일 경로')
-  .option('--title <title>', 'raw/wiki 제목')
-  .option('--content <text>', '인라인 원본 텍스트')
+  .option('--vault <path>', 'Obsidian vault path')
+  .option('--file <path>', 'Source text file path')
+  .option('--title <title>', 'raw/wiki title')
+  .option('--content <text>', 'Inline source text')
   .option('--concepts <json>', 'JSON array of {title, content?, subdir?}')
-  .option('--no-lint', 'lint_wiki 생략', false)
-  .option('--deep', 'lint deep 모드', false)
+  .option('--no-lint', 'Skip lint_wiki', false)
+  .option('--deep', 'Deep lint mode', false)
   .description('ingest_pipeline: raw → wiki concept(s) → lint')
   .action(
     async (options: {
@@ -272,11 +272,11 @@ program
 
 program
   .command('seed-stacks')
-  .option('--vault <path>', 'Obsidian vault 경로')
-  .option('--stacks <list>', '특정 스택 id만 (쉼표 구분). 생략 시 전체')
-  .option('--no-patterns', '아키텍처 패턴 페이지 제외')
+  .option('--vault <path>', 'Obsidian vault path')
+  .option('--stacks <list>', 'Comma-separated stack ids (default: all)')
+  .option('--no-patterns', 'Skip architecture pattern pages')
   .description(
-    `스택 플레이북 wiki 시드 (${ALL_STACK_IDS.length}개: React, Next, Vue, Spring, Kotlin, Express, FastAPI, Go, Rust, .NET, …)`
+    `Seed stack playbooks into wiki (${ALL_STACK_IDS.length}: React, Next, Vue, Spring, Kotlin, Express, FastAPI, Go, Rust, .NET, …)`
   )
   .action(async (options: { vault?: string; stacks?: string; patterns?: boolean }) => {
     const vaultPath = resolveVaultRoot(options.vault)
@@ -301,17 +301,17 @@ program
 
 program
   .command('design-architecture')
-  .option('--vault <path>', 'Obsidian vault 경로')
-  .option('--intent <text>', '아키텍처 의도/프로젝트 설명')
-  .option('--frontend <stack>', '예: react')
-  .option('--backend <stack>', '예: spring-boot')
-  .option('--mobile <stack>', '예: flutter')
-  .option('--skip-questions', 'Q&A 생략하고 바로 초안', false)
-  .option('--team-size <n>', '팀 규모')
+  .option('--vault <path>', 'Obsidian vault path')
+  .option('--intent <text>', 'Architecture intent / project description')
+  .option('--frontend <stack>', 'e.g. react')
+  .option('--backend <stack>', 'e.g. spring-boot')
+  .option('--mobile <stack>', 'e.g. flutter')
+  .option('--skip-questions', 'Skip Q&A and draft immediately', false)
+  .option('--team-size <n>', 'Team size')
   .option('--deployment <mode>', 'monolith|microservices|modular-monolith|serverless')
   .option('--scale <s>', 'mvp|growth|enterprise')
   .option('--auth <model>', 'JWT, OAuth2, …')
-  .description('wiki + 스택 플레이북 기반 아키텍처 설계 (docs/architecture.md)')
+  .description('Wiki + stack playbook architecture design (docs/architecture.md)')
   .action(
     async (options: {
       vault?: string
@@ -332,7 +332,7 @@ program
       const search = new SemanticSearch(embedder, resolveIndexDir(vaultPath))
       await search.load()
 
-      const intent = options.intent || '프로젝트 아키텍처'
+      const intent = options.intent || 'project architecture'
       const result = await designArchitecture(vault, search, intent, {
         frontend: options.frontend,
         backend: options.backend,
@@ -366,12 +366,12 @@ program
 
 program
   .command('aio-prompt <message>')
-  .option('--vault <path>', 'Obsidian vault 경로')
-  .option('--execute', '키워드 매칭 후 자동 실행', false)
-  .option('--tool <id>', '툴 강제 지정 (키워드 무시)')
-  .option('--targets <list>', 'harness targets (bootstrap 시)')
-  .option('--force', 'harness 덮어쓰기', false)
-  .description('키워드 기반 자연어 라우팅 — wiki/세션/harness/dag 등 전체 MCP 툴')
+  .option('--vault <path>', 'Obsidian vault path')
+  .option('--execute', 'Auto-execute after keyword match', false)
+  .option('--tool <id>', 'Force tool id (ignore keywords)')
+  .option('--targets <list>', 'Harness targets (when bootstrapping)')
+  .option('--force', 'Overwrite harness files', false)
+  .description('Keyword natural-language routing across MCP tools')
   .action(
     async (
       message: string,
@@ -431,10 +431,10 @@ program
 
 program
   .command('watch-raw')
-  .option('--vault <path>', 'Obsidian vault 경로')
-  .option('--subdir <name>', 'wiki taxonomy subdir (domain, engineering, …)', 'domain')
-  .option('--poll <ms>', '폴링 간격 ms', '5000')
-  .description('vault/raw-inbox/ 파일 감시 → ingest_pipeline 자동 처리')
+  .option('--vault <path>', 'Obsidian vault path')
+  .option('--subdir <name>', 'Wiki taxonomy subdir (domain, engineering, …)', 'domain')
+  .option('--poll <ms>', 'Poll interval in ms', '5000')
+  .description('Watch vault/raw-inbox/ and run ingest_pipeline')
   .action(async (options: { vault?: string; subdir?: string; poll?: string }) => {
     const vaultPath = resolveVaultRoot(options.vault)
     const vault = new ObsidianVault(vaultPath)
@@ -480,10 +480,12 @@ program
 
 program
   .command('dashboard')
-  .option('--host <host>', '호스트', '127.0.0.1')
-  .option('--port <port>', '포트', '8920')
-  .option('--vault <path>', 'Obsidian vault 경로')
-  .description('Wiki coverage · proposals · raw inbox · events 웹 대시보드')
+  .option('--host <host>', 'Host', '127.0.0.1')
+  .option('--port <port>', 'Port', '8920')
+  .option('--vault <path>', 'Obsidian vault path')
+  .description(
+    'Wiki coverage · proposals · raw inbox · events dashboard. Non-localhost bind requires AIO_DASHBOARD_TOKEN.'
+  )
   .action(async (options: { host?: string; port?: string; vault?: string }) => {
     const vaultPath = resolveVaultRoot(options.vault)
     const vault = new ObsidianVault(vaultPath)
@@ -502,6 +504,9 @@ program
 
     console.log(chalk.bold.cyan(`\n📊 Dashboard — ${url}`))
     console.log(chalk.dim('  Local apply/reject · scan-inbox · Ctrl+C to stop'))
+    if (process.env.AIO_DASHBOARD_TOKEN) {
+      console.log(chalk.dim('  Auth: AIO_DASHBOARD_TOKEN (Bearer / X-Aio-Token / ?token=)'))
+    }
     await new Promise<void>((resolve) => {
       process.on('SIGINT', () => {
         close().then(resolve).catch(console.error)
@@ -552,9 +557,9 @@ async function registerVaultCli(options: {
 
 const vaultCmd = program
   .command('vault')
-  .description('Multi-vault 레지스트리 (.aio/vaults.yaml). Subcommands: list, register')
+  .description('Multi-vault registry (.aio/vaults.yaml). Subcommands: list, register')
 
-vaultCmd.command('list').description('등록된 vault 목록').action(printVaultList)
+vaultCmd.command('list').description('List registered vaults').action(printVaultList)
 
 vaultCmd
   .command('register')
@@ -562,7 +567,7 @@ vaultCmd
   .requiredOption('--path <path>', 'relative or absolute path')
   .option('--domain <domain>', 'domain label')
   .option('--default', 'set as default vault', false)
-  .description('vaults.yaml에 vault 등록')
+  .description('Register a vault in vaults.yaml')
   .action(registerVaultCli)
 
 // Backward-compatible aliases
@@ -578,9 +583,9 @@ program
 
 program
   .command('scan-inbox')
-  .option('--vault <path>', 'Obsidian vault 경로')
+  .option('--vault <path>', 'Obsidian vault path')
   .option('--subdir <name>', 'wiki subdir', 'domain')
-  .description('raw-inbox 일회성 스캔 (MCP scan_raw_inbox와 동일)')
+  .description('One-shot raw-inbox scan (same as MCP scan_raw_inbox)')
   .action(async (options: { vault?: string; subdir?: string }) => {
     const vaultPath = resolveVaultRoot(options.vault)
     const vault = new ObsidianVault(vaultPath)
@@ -602,10 +607,10 @@ program
 
 program
   .command('wiki-lint')
-  .option('--vault <path>', 'Obsidian vault 경로 (기본: <프로젝트>/vault)')
-  .option('--deep', '심층 lint (broken links, stubs, stale, deprecated)', false)
-  .option('--fail', '이슈가 있으면 exit code 1 (CI용)', false)
-  .description('Wiki 구조 lint (orphans, index, schema, raw)')
+  .option('--vault <path>', 'Obsidian vault path (default: <project>/vault)')
+  .option('--deep', 'Deep lint (broken links, stubs, stale, deprecated)', false)
+  .option('--fail', 'Exit 1 if issues found (CI)', false)
+  .description('Wiki structure lint (orphans, index, schema, raw)')
   .action(async (options: { vault?: string; fail?: boolean; deep?: boolean }) => {
     const vaultPath = resolveVaultRoot(options.vault)
     const vault = new ObsidianVault(vaultPath)
@@ -642,9 +647,9 @@ program
 
 program
   .command('recall <query>')
-  .option('--top-k <n>', '검색 결과 수', '10')
-  .option('--vault <path>', 'Obsidian vault 경로 (기본: <프로젝트>/vault)')
-  .description('시맨틱 검색 (/recall) - 지식 베이스에서 의미 기반 검색')
+  .option('--top-k <n>', 'Number of results', '10')
+  .option('--vault <path>', 'Obsidian vault path (default: <project>/vault)')
+  .description('Semantic search over the knowledge base')
   .action(async (query: string, options: RecallOptions) => {
     const vaultPath = resolveVaultRoot(options.vault)
     const embedder = createEmbedder()
@@ -654,11 +659,11 @@ program
     const results = await search.search(query, parseInt(options.topK))
 
     if (!results.length) {
-      console.log(chalk.yellow('검색 결과 없음'))
+      console.log(chalk.yellow('No search results'))
       return
     }
 
-    const table = new Table({ head: ['#', '문서', '점수', '내용'] })
+    const table = new Table({ head: ['#', 'Document', 'Score', 'Snippet'] })
     results.forEach((r, i) => {
       table.push([String(i + 1), r.title, r.score.toFixed(3), r.snippet.slice(0, 60)])
     })
@@ -667,30 +672,78 @@ program
 
 program
   .command('serve')
-  .option('--host <host>', 'MCP 서버 호스트', '127.0.0.1')
-  .option('--port <port>', 'MCP 서버 포트', '8910')
-  .option('--max-sessions <n>', '최대 병렬 세션', '5')
-  .option('--vault <path>', 'Obsidian vault 경로 (기본: <프로젝트>/vault)')
-  .description('SSE 기반 MCP 서버 실행 (외부 MCP 클라이언트용)')
+  .option('--host <host>', 'MCP server host', '127.0.0.1')
+  .option('--port <port>', 'MCP server port', '8910')
+  .option('--max-sessions <n>', 'Max parallel sessions', '5')
+  .option('--vault <path>', 'Obsidian vault path (default: <project>/vault)')
+  .description(
+    'Run SSE MCP server for external clients. Non-localhost bind requires AIO_SSE_TOKEN.'
+  )
   .action(async (options: ServeOptions) => {
     const mcp = new MCPServer({
       maxSessions: parseInt(options.maxSessions),
       vaultPath: options.vault,
     })
     console.log(
-      chalk.bold.cyan(`\n🔌 MCP 서버 시작 (SSE) - http://${options.host}:${options.port}/sse`)
+      chalk.bold.cyan(`\n🔌 MCP server (SSE) — http://${options.host}:${options.port}/sse`)
     )
-    console.log(`  최대 병렬 세션: ${options.maxSessions}`)
+    console.log(`  Max parallel sessions: ${options.maxSessions}`)
     console.log(`  Vault: ${mcp.vaultRoot}`)
-    console.log('  종료: Ctrl+C')
+    if (process.env.AIO_SSE_TOKEN) {
+      console.log(chalk.dim('  Auth: AIO_SSE_TOKEN (Bearer / X-Aio-Token / ?token=)'))
+    }
+    console.log('  Stop: Ctrl+C')
     await mcp.runSSE(options.host, parseInt(options.port))
+  })
+
+const approvalCmd = program.command('approval').description('Human-in-the-loop approval gate')
+
+approvalCmd
+  .command('list')
+  .option('--status <status>', 'pending|approved|rejected|expired')
+  .description('List approval requests')
+  .action(async (options: { status?: string }) => {
+    const { ApprovalGate } = await import('@/orchestrator/approval')
+    const gate = new ApprovalGate()
+    await gate.load()
+    const status = options.status as 'pending' | 'approved' | 'rejected' | 'expired' | undefined
+    const rows = gate.list(status)
+    if (!rows.length) {
+      console.log(chalk.dim('(no approvals)'))
+      return
+    }
+    const table = new Table({ head: ['id', 'status', 'risk', 'action', 'reason'] })
+    for (const a of rows) {
+      table.push([a.id, a.status, a.risk, a.action, a.reason.slice(0, 60)])
+    }
+    console.log(table.toString())
+  })
+
+approvalCmd
+  .command('resolve')
+  .argument('<id>', 'approval id')
+  .option('--approve', 'approve the request')
+  .option('--reject', 'reject the request')
+  .description('Resolve an approval from the local CLI (trusted; no confirm_code needed)')
+  .action(async (id: string, options: { approve?: boolean; reject?: boolean }) => {
+    if (!!options.approve === !!options.reject) {
+      console.error(chalk.red('Specify exactly one of --approve or --reject'))
+      process.exitCode = 1
+      return
+    }
+    const { ApprovalGate } = await import('@/orchestrator/approval')
+    const gate = new ApprovalGate()
+    await gate.load()
+    const result = await gate.resolve(id, !!options.approve, 'cli', { trustedLocal: true })
+    console.log(JSON.stringify(result, null, 2))
+    if ('error' in result) process.exitCode = 1
   })
 
 program
   .command('mcp-serve')
-  .option('--vault <path>', 'Obsidian vault 경로 (기본: <프로젝트>/vault)')
-  .option('--max-sessions <n>', '최대 병렬 세션', '5')
-  .description('stdio 기반 MCP 서버 실행 (Cursor/OpenCode 연결용)')
+  .option('--vault <path>', 'Obsidian vault path (default: <project>/vault)')
+  .option('--max-sessions <n>', 'Max parallel sessions', '5')
+  .description('Run stdio MCP server (Cursor / OpenCode)')
   .action(async (options: McpServeOptions) => {
     const server = new MCPServer({
       maxSessions: parseInt(options.maxSessions),
@@ -701,8 +754,8 @@ program
 
 program
   .command('status')
-  .option('--vault <path>', 'Obsidian vault 경로 (기본: <프로젝트>/vault)')
-  .description('시스템 상태 확인')
+  .option('--vault <path>', 'Obsidian vault path (default: <project>/vault)')
+  .description('Show project / vault / index paths')
   .action(async (options: { vault?: string }) => {
     const projectRoot = resolveProjectRoot()
     const vaultPath = resolveVaultRoot(options.vault)
@@ -710,33 +763,49 @@ program
     await vault.initialize()
     const notes = await vault.listNotes()
 
-    const table = new Table({ head: ['컴포넌트', '상태', '비고'] })
+    const { resolveVectorStoreKind } = await import('@/knowledge/vector-store')
+    const storeKind = resolveVectorStoreKind()
+    const storeDetail =
+      storeKind === 'faiss'
+        ? resolveIndexDir(vaultPath)
+        : storeKind === 'qdrant'
+          ? `qdrant ${process.env.QDRANT_URL || 'http://127.0.0.1:6333'}`
+          : storeKind === 'chroma'
+            ? `chroma ${process.env.CHROMA_URL || 'http://127.0.0.1:8000'}`
+            : storeKind === 'weaviate'
+              ? `weaviate ${process.env.WEAVIATE_URL || 'http://127.0.0.1:8080'}`
+              : storeKind === 'pinecone'
+                ? `pinecone index=${process.env.PINECONE_INDEX || 'auto'}`
+                : storeKind === 'pgvector'
+                  ? 'pgvector DATABASE_URL'
+                  : storeKind
+    const table = new Table({ head: ['Component', 'Status', 'Detail'] })
     table.push(['Project', '✓', projectRoot])
-    table.push(['Vault', '✓', `${vaultPath} (${notes.length}개 문서)`])
-    table.push(['검색 인덱스', '✓', resolveIndexDir(vaultPath)])
+    table.push(['Vault', '✓', `${vaultPath} (${notes.length} notes)`])
+    table.push(['Vector store', '✓', storeDetail])
     console.log(table.toString())
   })
 
 program
   .command('example')
-  .description('전체 파이프라인 예제 실행')
+  .description('Run a full orchestration pipeline demo')
   .action(async () => {
-    console.log(chalk.bold.cyan('\n📦 오케스트레이션 파이프라인 예제\n'))
+    console.log(chalk.bold.cyan('\n📦 Orchestration pipeline example\n'))
 
     const planner = new DeepInterviewPlanner()
     const plan = planner.createPlan(
-      '결제 시스템 리팩터링',
-      '결제 모듈을 레거시에서 신규 시스템으로 마이그레이션',
-      ['모든 결제 수단 지원', '기존 테스트 100% 통과', '성능 회귀 없음'],
-      ['DB 스키마 변경 불가', 'API 호환성 유지']
+      'Payment system refactor',
+      'Migrate the payment module from legacy to the new system',
+      ['Support all payment methods', 'Keep existing tests green', 'No performance regression'],
+      ['No DB schema changes', 'Maintain API compatibility']
     )
 
     const dag = planner.decomposeToDAG(plan, [
-      ['T1', '공통 DTO 정의', []] as [string, string, string[]],
-      ['T2', 'DB 인터페이스 추상화', []] as [string, string, string[]],
-      ['T3', '신규 결제 API', ['T1', 'T2']] as [string, string, string[]],
-      ['T4', '레거시 어댑터', ['T2']] as [string, string, string[]],
-      ['T5', '통합 테스트', ['T3', 'T4']] as [string, string, string[]],
+      ['T1', 'Define shared DTOs', []] as [string, string, string[]],
+      ['T2', 'Abstract DB interface', []] as [string, string, string[]],
+      ['T3', 'New payment API', ['T1', 'T2']] as [string, string, string[]],
+      ['T4', 'Legacy adapter', ['T2']] as [string, string, string[]],
+      ['T5', 'Integration tests', ['T3', 'T4']] as [string, string, string[]],
     ])
 
     planner.printPlan(plan)
@@ -744,16 +813,16 @@ program
     const orchestrator = new DAGOrchestrator({ maxParallel: 3, enableVerify: false })
 
     const implementations = new Map<string, () => Promise<unknown>>([
-      ['T1', async () => 'DTO 정의 완료'],
-      ['T2', async () => 'DB 추상화 완료'],
-      ['T3', async () => 'API 구현 완료'],
-      ['T4', async () => '어댑터 구현 완료'],
-      ['T5', async () => '통합 테스트 통과'],
+      ['T1', async () => 'DTOs defined'],
+      ['T2', async () => 'DB abstraction done'],
+      ['T3', async () => 'API implemented'],
+      ['T4', async () => 'Adapter implemented'],
+      ['T5', async () => 'Integration tests passed'],
     ])
 
     const results = await orchestrator.executeDAG(dag, implementations)
 
-    console.log(chalk.bold.green('\n=== 결과 요약 ==='))
+    console.log(chalk.bold.green('\n=== Result summary ==='))
     for (const [id, result] of results) {
       console.log(`  ✓ ${id}: ${result}`)
     }

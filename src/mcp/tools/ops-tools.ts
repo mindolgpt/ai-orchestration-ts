@@ -35,15 +35,21 @@ export function registerOpsTools(
   server.registerTool(
     'resolve_approval',
     {
-      description: 'Approve or reject a pending approval request',
+      description:
+        'Approve or reject a pending approval. Approving requires confirm_code from MCP server stderr ([aio:approval]), or use CLI: aio approval resolve <id> --approve. Reject does not need a code.',
       inputSchema: z.object({
         approval_id: z.string(),
         approved: z.boolean(),
         resolver: z.string().optional(),
+        confirm_code: z.string().optional(),
       }),
     },
     async (args) =>
-      json(await approval.resolve(args.approval_id, args.approved, args.resolver || 'human'))
+      json(
+        await approval.resolve(args.approval_id, args.approved, args.resolver || 'human', {
+          confirmCode: args.confirm_code,
+        })
+      )
   )
 
   server.registerTool(
@@ -54,7 +60,10 @@ export function registerOpsTools(
         status: z.enum(['pending', 'approved', 'rejected', 'expired']).optional(),
       }),
     },
-    async (args) => json({ approvals: approval.list(args.status) })
+    async (args) =>
+      json({
+        approvals: approval.list(args.status).map(({ confirmHash: _h, ...rest }) => rest),
+      })
   )
 
   server.registerTool(
@@ -85,7 +94,7 @@ export function registerOpsTools(
     'run_doctor',
     {
       description:
-        'Project health / onboarding diagnostic. Keywords: doctor, 진단, 헬스체크. Returns vault, harness, MCP, git, session runtime checks.',
+        'Project health / onboarding diagnostic. Keywords: run doctor / 프로젝트 진단 / health check. Returns vault, harness, MCP, git, session runtime checks.',
       inputSchema: z.object({
         skip_embed_test: z.boolean().optional(),
       }),

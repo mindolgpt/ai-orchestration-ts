@@ -159,18 +159,35 @@ export async function runDoctor(opts?: {
     }
   }
 
-  // Index
+  // Index / vector store
   const indexDir = resolveIndexDir(vaultRoot)
-  const metaPath = path.join(indexDir, 'meta.json')
-  const faissPath = path.join(indexDir, 'index.faiss')
-  const hasMeta = await pathExists(metaPath)
-  const hasFaiss = await pathExists(faissPath)
-  checks.push({
-    id: 'search_index',
-    severity: hasMeta && hasFaiss ? 'ok' : hasMeta ? 'warn' : 'fail',
-    message: hasMeta && hasFaiss ? `Search index: ${indexDir}` : `Index incomplete: ${indexDir}`,
-    fix: !hasMeta ? 'Run: aio init (or recall once to build index)' : undefined,
-  })
+  const { resolveVectorStoreKind } = await import('@/knowledge/vector-store')
+  const storeKind = resolveVectorStoreKind()
+  let indexReadyForEmbed = false
+  if (storeKind === 'faiss') {
+    const metaPath = path.join(indexDir, 'meta.json')
+    const faissPath = path.join(indexDir, 'index.faiss')
+    const hasMeta = await pathExists(metaPath)
+    const hasFaiss = await pathExists(faissPath)
+    indexReadyForEmbed = hasMeta
+    checks.push({
+      id: 'search_index',
+      severity: hasMeta && hasFaiss ? 'ok' : hasMeta ? 'warn' : 'fail',
+      message:
+        hasMeta && hasFaiss ? `Search index (faiss): ${indexDir}` : `Index incomplete: ${indexDir}`,
+      fix: !hasMeta ? 'Run: aio init (or recall once to build index)' : undefined,
+    })
+  } else {
+    const probe = await probeRemoteVectorStore(storeKind)
+    indexReadyForEmbed = probe.ok
+    checks.push({
+      id: 'search_index',
+      severity: probe.ok ? 'ok' : 'fail',
+      message: probe.message,
+      detail: probe.detail,
+      fix: probe.ok ? undefined : probe.fix,
+    })
+  }
 
   // Harness
   const harnessFiles = [
@@ -374,7 +391,7 @@ export async function runDoctor(opts?: {
   }
 
   // Optional embed smoke (skip in tests)
-  if (!opts?.skipEmbedTest && vaultOk && hasMeta) {
+  if (!opts?.skipEmbedTest && vaultOk && indexReadyForEmbed) {
     try {
       const { createEmbedder } = await import('@/knowledge/embedder')
       const emb = createEmbedder()
@@ -435,6 +452,98 @@ export async function runDoctor(opts?: {
   }
 }
 
+async function probeRemoteVectorStore(
+  kind: string
+): Promise<{ ok: boolean; message: string; detail?: string; fix?: string }> {
+  const fixBase = 'Fix env or unset VECTOR_STORE to use local FAISS'
+  try {
+    if (kind === 'qdrant') {
+      const url = (process.env.QDRANT_URL || 'http://127.0.0.1:6333').replace(/\/$/, '')
+      const res = await fetch(`${url}/readyz`, {
+        headers: process.env.QDRANT_API_KEY ? { 'api-key': process.env.QDRANT_API_KEY } : undefined,
+      })
+      return {
+        ok: res.ok,
+        message: res.ok ? `Vector store: qdrant (${url})` : `Qdrant not ready (${res.status})`,
+        fix: res.ok ? undefined : fixBase,
+      }
+    }
+    if (kind === 'chroma') {
+      const url = (process.env.CHROMA_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
+      let res = await fetch(`${url}/api/v2/heartbeat`).catch(() => null)
+      if (!res || !res.ok) res = await fetch(`${url}/api/v1/heartbeat`).catch(() => null)
+      const ok = !!res?.ok
+      return {
+        ok,
+        message: ok ? `Vector store: chroma (${url})` : `Chroma not ready at ${url}`,
+        fix: ok ? undefined : fixBase,
+      }
+    }
+    if (kind === 'weaviate') {
+      const url = (process.env.WEAVIATE_URL || 'http://127.0.0.1:8080').replace(/\/$/, '')
+      const res = await fetch(`${url}/v1/.well-known/ready`)
+      return {
+        ok: res.ok,
+        message: res.ok ? `Vector store: weaviate (${url})` : `Weaviate not ready at ${url}`,
+        fix: res.ok ? undefined : fixBase,
+      }
+    }
+    if (kind === 'pinecone') {
+      const key = process.env.PINECONE_API_KEY?.trim()
+      if (!key) {
+        return { ok: false, message: 'Pinecone: PINECONE_API_KEY missing', fix: fixBase }
+      }
+      const res = await fetch('https://api.pinecone.io/indexes', {
+        headers: { 'Api-Key': key, 'X-Pinecone-Api-Version': '2025-01' },
+      })
+      return {
+        ok: res.ok,
+        message: res.ok
+          ? `Vector store: pinecone (index=${process.env.PINECONE_INDEX || 'auto'})`
+          : `Pinecone API error (${res.status})`,
+        fix: res.ok ? undefined : fixBase,
+      }
+    }
+    if (kind === 'pgvector') {
+      const connectionString =
+        process.env.DATABASE_URL?.trim() ||
+        process.env.PGVECTOR_URL?.trim() ||
+        process.env.POSTGRES_URL?.trim()
+      if (!connectionString) {
+        return { ok: false, message: 'pgvector: DATABASE_URL missing', fix: fixBase }
+      }
+      try {
+        const pg = await import('pg')
+        const Pool =
+          pg.Pool || (pg as unknown as { default: { Pool: typeof pg.Pool } }).default?.Pool
+        if (!Pool) throw new Error('pg.Pool missing — npm i pg')
+        const pool = new Pool({ connectionString, connectionTimeoutMillis: 3000 })
+        try {
+          await pool.query('SELECT 1')
+          return { ok: true, message: 'Vector store: pgvector (DATABASE_URL)' }
+        } finally {
+          await pool.end().catch(() => undefined)
+        }
+      } catch (err) {
+        return {
+          ok: false,
+          message: 'pgvector connection failed',
+          detail: err instanceof Error ? err.message : String(err),
+          fix: 'Install pg (`npm i pg`), enable CREATE EXTENSION vector, check DATABASE_URL',
+        }
+      }
+    }
+    return { ok: false, message: `Unknown VECTOR_STORE=${kind}`, fix: fixBase }
+  } catch (err) {
+    return {
+      ok: false,
+      message: `Vector store ${kind} unreachable`,
+      detail: err instanceof Error ? err.message : String(err),
+      fix: fixBase,
+    }
+  }
+}
+
 export const ONBOARDING_CHECKLIST = [
   { step: 1, cmd: 'npx -y @mindol1004/aio-mcp init', note: 'vault + search index' },
   {
@@ -450,7 +559,7 @@ export const ONBOARDING_CHECKLIST = [
   { step: 4, cmd: 'npx -y @mindol1004/aio-mcp doctor', note: 'verify all checks green/warn-only' },
   {
     step: 5,
-    cmd: 'aio ingest --file docs/x.md --concepts \'[{title:"Concept"}]\'',
+    cmd: 'aio ingest --file README.md',
     note: 'ingest pipeline raw→wiki→lint',
   },
   { step: 6, cmd: 'aio aio-prompt "wiki lint" --execute', note: 'keyword routing smoke test' },

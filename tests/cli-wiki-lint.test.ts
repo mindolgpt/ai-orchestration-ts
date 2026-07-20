@@ -13,6 +13,6 @@ describe('cli wiki-lint command', () => {
     const wikiLintIdx = match ? withoutComments.indexOf(match[0]) : -1
     expect(wikiLintIdx).toBeGreaterThan(-1)
     const after = withoutComments.slice(wikiLintIdx, wikiLintIdx + 400)
-    expect(after).toMatch(/\.description\(\s*["']Wiki 구조 lint/)
+    expect(after).toMatch(/\.description\(\s*["']Wiki structure lint/)
   })
 })

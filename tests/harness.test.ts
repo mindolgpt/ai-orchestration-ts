@@ -105,6 +105,26 @@ describe('bootstrapHarness', () => {
     expect(await fs.stat(path.join(root, '.codex', 'hooks.json'))).toBeDefined()
     expect(await fs.stat(path.join(root, '.opencode', 'plugins', 'aio-harness.mjs'))).toBeDefined()
   })
+
+  test('does not overwrite existing AGENTS.md without force (including codex)', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-harness-agents-'))
+    const vault = new ObsidianVault(path.join(root, 'vault'))
+    await vault.initialize()
+    const sentinel = '# keep-me\n'
+    await fs.writeFile(path.join(root, 'AGENTS.md'), sentinel, 'utf-8')
+
+    const result = await bootstrapHarness(vault, {
+      projectRoot: root,
+      targets: ['codex'],
+      force: false,
+      profile: { domain: 'ecommerce', description: 'test' },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(await fs.readFile(path.join(root, 'AGENTS.md'), 'utf-8')).toBe(sentinel)
+    const agentsEntry = result.files.find((f) => f.path.endsWith('AGENTS.md'))
+    expect(agentsEntry?.action).toBe('skipped')
+  })
 })
 
 describe('domain context pack', () => {

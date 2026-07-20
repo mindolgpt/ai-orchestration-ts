@@ -2,11 +2,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { MessageInbox } from '@/mcp/inbox'
 import { ChildProcess, spawn } from 'child_process'
-import { randomUUID } from 'crypto'
+import { randomBytes, randomUUID } from 'crypto'
 import { resolveSessionSpawn, listSessionRuntimes } from '@/mcp/session-runtime'
 import { createWorktree, removeWorktree } from '@/orchestrator/worktree'
 import { getEventLog } from '@/observability/events'
 import { resolveProjectRoot } from '@/knowledge/paths'
+import { buildChildEnv } from '@/security/child-env'
 
 export interface ChildSession {
   id: string
@@ -23,6 +24,7 @@ export interface ChildSession {
   worktreePath?: string
   worktreeBranch?: string
   cwd?: string
+  sessionSecret?: string
 }
 
 export interface SpawnSessionOptions {
@@ -38,14 +40,20 @@ function runningCount(sessions: Map<string, ChildSession>): number {
   return Array.from(sessions.values()).filter((s) => s.status === 'running').length
 }
 
-function buildChildPrompt(sessionId: string, task: string, context?: string): string {
+function buildChildPrompt(
+  sessionId: string,
+  task: string,
+  context?: string,
+  sessionSecret?: string
+): string {
   const parts = [
     `[Session ID]\n${sessionId}`,
+    sessionSecret ? `[Session Secret]\n${sessionSecret}` : '',
     context ? `[Context]\n${context}` : '',
     `[Task]\n${task}`,
     `[Instructions]
 - You are an isolated child session. Do not talk to the end user directly.
-- When finished, call report_result with session_id="${sessionId}", status="completed"|"failed", and a concise summary.
+- When finished, call report_result with session_id="${sessionId}"${sessionSecret ? `, session_secret="${sessionSecret}"` : ''}, status="completed"|"failed", and a concise summary.
 - Keep the summary under 2000 characters.`,
   ]
   return parts.filter(Boolean).join('\n\n')
@@ -80,7 +88,8 @@ export async function spawnSession(
   }
 
   const sessionId = `sess_${randomUUID().slice(0, 8)}`
-  const prompt = buildChildPrompt(sessionId, task, context)
+  const sessionSecret = randomBytes(16).toString('hex')
+  const prompt = buildChildPrompt(sessionId, task, context, sessionSecret)
   const projectRoot = opts?.projectRoot || resolveProjectRoot()
   const spec = resolveSessionSpawn(prompt, {
     runtime: opts?.runtime,
@@ -111,13 +120,13 @@ export async function spawnSession(
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
       cwd,
-      env: {
-        ...process.env,
+      env: buildChildEnv({
         AIO_SESSION_ID: sessionId,
+        AIO_SESSION_SECRET: sessionSecret,
         AIO_PARENT_ORCHESTRATOR: '1',
         AIO_SESSION_RUNTIME: spec.runtime,
         ...(worktreePath ? { AIO_WORKTREE: worktreePath } : {}),
-      },
+      }),
     })
   } catch (err) {
     if (worktreePath) await removeWorktree(sessionId, projectRoot).catch(() => {})
@@ -140,6 +149,7 @@ export async function spawnSession(
     worktreePath,
     worktreeBranch,
     cwd,
+    sessionSecret,
   }
   sessions.set(sessionId, session)
 
@@ -411,19 +421,47 @@ export function registerSessionTools(
   server.registerTool(
     'report_result',
     {
-      description: 'Child reports result to parent inbox (include session_id from spawn prompt)',
+      description:
+        'Child reports result to parent inbox (include session_id and session_secret from spawn prompt)',
       inputSchema: z.object({
         session_id: z.string(),
         status: z.string(),
         summary: z.string(),
+        session_secret: z.string().optional(),
       }),
     },
     async (args) => {
+      const s = sessions.get(args.session_id)
+      if (!s) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ error: `Session ${args.session_id} not found` }),
+            },
+          ],
+        }
+      }
+      if (s.sessionSecret) {
+        const bypass = process.env.AIO_ALLOW_REPORT_WITHOUT_SECRET === '1'
+        const got = args.session_secret?.trim()
+        if (!bypass && got !== s.sessionSecret) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  error: 'session_secret required (from spawn prompt / AIO_SESSION_SECRET env)',
+                }),
+              },
+            ],
+          }
+        }
+      }
       inbox.post(args.session_id, `session:${args.session_id}`, args.status, {
         summary: args.summary,
       })
-      const s = sessions.get(args.session_id)
-      if (s && (args.status === 'completed' || args.status === 'failed')) {
+      if (args.status === 'completed' || args.status === 'failed') {
         s.status = args.status
       }
       await getEventLog().emit('session.report', {

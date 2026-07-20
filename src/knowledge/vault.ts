@@ -38,6 +38,13 @@ export class ObsidianVault {
     return toPosixPath(relative).replace(/\.md$/, '') === WIKI_SCHEMA_PATH.replace(/\.md$/, '')
   }
 
+  /** Paths that must not be overwritten via store_knowledge / writeNote (use dedicated APIs). */
+  isProtectedPath(relative: string): boolean {
+    const p = toPosixPath(relative).replace(/\.md$/, '')
+    if (this.isSchemaPath(p)) return true
+    return p === 'wiki/index' || p === 'wiki/log'
+  }
+
   resolvePath(relative: string): string {
     const clean = toPosixPath(relative).replace(/\.md$/, '')
     if (path.isAbsolute(clean) || clean.startsWith('~')) {
@@ -135,6 +142,11 @@ export class ObsidianVault {
     const posixRel = toPosixPath(relativePath).replace(/\.md$/, '')
     if (this.isRawPath(posixRel)) {
       throw new Error('raw/ is immutable — use writeRawOnce to add sources')
+    }
+    if (this.isProtectedPath(posixRel)) {
+      throw new Error(
+        `protected path cannot be written via writeNote/store_knowledge: ${relativePath} (use wiki MR / ingest tools)`
+      )
     }
 
     const fullPath = this.resolvePath(posixRel)

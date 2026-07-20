@@ -44,6 +44,13 @@ describe('ObsidianVault', () => {
     )
   })
 
+  test('refuses protected schema and wiki index/log via writeNote', async () => {
+    await vault.initialize()
+    await expect(vault.writeNote('AGENTS.md', 'evil')).rejects.toThrow(/protected path/)
+    await expect(vault.writeNote('wiki/index', 'evil')).rejects.toThrow(/protected path/)
+    await expect(vault.writeNote('wiki/log', 'evil')).rejects.toThrow(/protected path/)
+  })
+
   test('writeRawOnce is immutable create-once', async () => {
     await vault.initialize()
     const first = await vault.writeRawOnce({ title: 'Doc A', content: 'original text' })

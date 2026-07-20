@@ -1,6 +1,6 @@
 {
   "name": "@mindol1004/aio-mcp",
-  "version": "2.12.0",
+  "version": "2.13.0",
   "description": "AI Orchestration System - TypeScript rewrite",
   "type": "module",
   "main": "dist/cli.js",
@@ -41,7 +41,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@xenova/transformers": "^2.0.1",
+    "@xenova/transformers": "^2.17.2",
     "chalk": "^5.3.0",
     "cli-table3": "^0.6.3",
     "commander": "^12.0.0",
@@ -50,12 +50,14 @@
     "js-yaml": "^4.1.0",
     "openai": "^4.28.0",
     "ora": "^8.0.0",
+    "pg": "^8.22.0",
     "uuid": "^14.0.1",
     "zod": "^3.22.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.19.43",
+    "@types/pg": "^8.20.0",
     "@types/uuid": "^9.0.0",
     "@typescript-eslint/eslint-plugin": "^8.64.0",
     "@typescript-eslint/parser": "^8.64.0",
@@ -70,9 +72,12 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "overrides": {
+    "protobufjs": "^7.6.5",
+    "esbuild": "^0.28.1"
+  },
   "allowScripts": {
     "esbuild@0.28.1": true,
-    "esbuild@0.21.5": true,
     "faiss-node@0.5.1": true,
     "sharp@0.32.6": true,
     "protobufjs@7.6.5": true

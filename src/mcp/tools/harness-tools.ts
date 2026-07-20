@@ -32,7 +32,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     'aio_prompt',
     {
       description:
-        "Keyword-based natural language router for ALL aio-mcp tools. Examples: 'wiki 검색 장바구니', '세션 띄워서 API 만들어', 'TODO 스캔', 'wiki lint', 'plan task 결제'. Set execute:true to run matched tool.",
+        "Keyword-based natural language router for ALL aio-mcp tools (Korean + English). Examples: 'wiki 검색 장바구니' / 'search the wiki for cart', '세션 띄워 API' / 'spawn a session', 'TODO 스캔' / 'scan for TODOs', 'wiki lint' / 'lint the wiki'. Set execute:true to run the matched tool.",
       inputSchema: z.object({
         message: z.string(),
         execute: z.boolean().optional(),
@@ -134,7 +134,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     'bootstrap_harness',
     {
       description:
-        "Generate domain harness for detected AI tool (default: auto-detect 1 client). Use targets:['all'] for every client. Keywords: 하네스, harness setup.",
+        "Generate domain harness for detected AI tool (default: auto-detect 1 client). Use targets:['all'] for every client. Keywords: 하네스 / harness setup / bootstrap harness.",
       inputSchema: z.object({
         targets: z
           .array(z.enum(['cursor', 'claude', 'opencode', 'codex', 'windsurf', 'continue', 'all']))
@@ -177,7 +177,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
   server.registerTool(
     'seed_stack_playbooks',
     {
-      description: `Seed vault/wiki/stacks/* playbooks (${ALL_STACK_IDS.length} stacks). Keywords: 스택 플레이북, seed stack`,
+      description: `Seed vault/wiki/stacks/* playbooks (${ALL_STACK_IDS.length} stacks). Keywords: 스택 플레이북 / seed stack playbooks.`,
       inputSchema: z.object({
         stacks: z.array(z.string()).optional(),
         include_patterns: z.boolean().optional(),
@@ -195,7 +195,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     'design_architecture',
     {
       description:
-        'Wiki + stack playbook architecture design. Keywords: 아키텍처, architecture design.',
+        'Wiki + stack playbook architecture design. Keywords: 아키텍처 / architecture design / design the architecture.',
       inputSchema: z.object({
         intent: z.string(),
         prompt: z.string().optional(),
@@ -242,7 +242,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     'brainstorm_design',
     {
       description:
-        'Full-lifecycle dev brainstorm: planning, UX, visual design, domain, architecture, DB, algorithms, security, testing, DevOps, docs. Wiki-grounded options + trade-offs. Keywords: 브레인스토밍, 기획, 디자인, ux, 설계 추천.',
+        'Full-lifecycle dev brainstorm: planning, UX, visual design, domain, architecture, DB, algorithms, security, testing, DevOps, docs. Wiki-grounded options + trade-offs. Keywords: 브레인스토밍 / brainstorm / 기획 / help me design / UX design.',
       inputSchema: z.object({
         topic: z.string(),
         focus: z
@@ -304,7 +304,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     'bootstrap_domain',
     {
       description:
-        'Build domain context pack from wiki. Keywords: wiki 컨텍스트, bootstrap domain.',
+        'Build domain context pack from wiki. Keywords: wiki 컨텍스트 / domain context / bootstrap domain.',
       inputSchema: z.object({
         task: z.string(),
         top_k: z.number().optional(),
@@ -334,7 +334,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
   server.registerTool(
     'run_domain_loop',
     {
-      description: 'Full domain loop brief. Keywords: 도메인 루프, domain loop.',
+      description: 'Full domain loop brief. Keywords: 도메인 루프 / domain loop / run domain loop.',
       inputSchema: z.object({
         task: z.string(),
         top_k: z.number().optional(),
@@ -357,7 +357,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
   server.registerTool(
     'get_domain_profile',
     {
-      description: 'Read .aio/domain-profile.yaml. Keywords: 도메인 프로필.',
+      description: 'Read .aio/domain-profile.yaml. Keywords: 도메인 프로필 / domain profile.',
     },
     async () => json(await loadDomainProfile(vault, root))
   )
@@ -365,7 +365,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
   server.registerTool(
     'save_domain_profile',
     {
-      description: 'Save domain profile. Keywords: 프로필 저장.',
+      description: 'Save domain profile. Keywords: 프로필 저장 / save domain profile.',
       inputSchema: z.object({
         name: z.string().optional(),
         domain: z.string(),
@@ -400,7 +400,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
   server.registerTool(
     'list_stack_playbooks',
     {
-      description: 'List stack playbook ids. Keywords: 스택 목록.',
+      description: 'List stack playbook ids. Keywords: 스택 목록 / list stack playbooks.',
     },
     async () =>
       json({

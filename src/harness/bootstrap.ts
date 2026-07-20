@@ -262,9 +262,7 @@ export async function bootstrapHarness(
         'codex'
       )
     )
-    files.push(
-      await writeFile(path.join(projectRoot, 'AGENTS.md'), projectAgentsMd(profile), true, 'codex')
-    )
+    // AGENTS.md is written once above (shared); do not force-overwrite here.
   }
 
   if (targets.includes('windsurf')) {
@@ -386,7 +384,7 @@ export async function bootstrapHarness(
       'Codex: trust project + review hooks via /hooks',
       'OpenCode: restart after .opencode/plugins/ is created',
       'For Cursor/Claude/Codex/Continue CLI: ensure hooks are enabled',
-      "Natural language: say '하네스 구성해줘' (auto-detects your AI tool; use targets:['all'] for every client)",
+      "Natural language (KO/EN): say '하네스 구성해줘' or 'bootstrap harness' (auto-detects your AI tool; use targets:['all'] for every client)",
       'Call seed_stack_playbooks once to populate vault/wiki/stacks/',
       'Call bootstrap_domain({ task: "your feature" }) before coding',
       'Edit .aio/domain-profile.yaml for stack/domain tweaks; re-run bootstrap_harness',

@@ -142,8 +142,8 @@ export function registerDagTools(
         if (!(id in seed)) seed[id] = val
       }
 
-      const needGate =
-        args.require_approval_if_dangerous !== false && !args.skip_approval && !!approval
+      const skipAllowed = args.skip_approval === true && process.env.AIO_ALLOW_SKIP_APPROVAL === '1'
+      const needGate = args.require_approval_if_dangerous !== false && !skipAllowed && !!approval
       if (needGate && approval) {
         let approved = false
         if (args.approval_id) {
@@ -187,7 +187,7 @@ export function registerDagTools(
                     reason: 'approval_required',
                     approval_id: req.id,
                     message:
-                      'Call resolve_approval({approved:true}) then re-run execute_dag with approval_id.',
+                      'Human approval required. Check MCP server stderr for [aio:approval] confirm_code, then resolve_approval({approval_id, approved:true, confirm_code}) or run: aio approval resolve <id> --approve. Re-run execute_dag with approval_id.',
                   }),
                 },
               ],

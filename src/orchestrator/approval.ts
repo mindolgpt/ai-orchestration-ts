@@ -1,8 +1,14 @@
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import { randomUUID } from 'crypto'
+import { createHash, randomBytes, randomUUID } from 'crypto'
 import { resolveProjectRoot } from '@/knowledge/paths'
 import { getEventLog } from '@/observability/events'
+
+export interface ResolveApprovalOptions {
+  confirmCode?: string
+  /** Local CLI / trusted channel — skips confirm_code check */
+  trustedLocal?: boolean
+}
 
 export type ApprovalRisk = 'low' | 'medium' | 'high' | 'critical'
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired'
@@ -17,6 +23,8 @@ export interface ApprovalRequest {
   resolvedAt?: number
   resolver?: string
   meta?: Record<string, unknown>
+  /** sha256 of confirm code — never store plaintext code on disk */
+  confirmHash?: string
 }
 
 const DANGEROUS_PATTERNS = [
@@ -33,8 +41,14 @@ export function looksDangerous(text: string): boolean {
   return DANGEROUS_PATTERNS.some((re) => re.test(text))
 }
 
+function hashConfirmCode(code: string): string {
+  return createHash('sha256').update(code, 'utf8').digest('hex')
+}
+
 export class ApprovalGate {
   private items = new Map<string, ApprovalRequest>()
+  /** In-memory plaintext codes (also printed to stderr; never returned via MCP JSON). */
+  private confirmCodes = new Map<string, string>()
   private filePath: string
   private ttlMs: number
 
@@ -81,6 +95,7 @@ export class ApprovalGate {
     meta?: Record<string, unknown>
   ): Promise<ApprovalRequest> {
     this.expireOld()
+    const confirmCode = randomBytes(8).toString('hex')
     const req: ApprovalRequest = {
       id: `apr_${randomUUID().slice(0, 8)}`,
       action,
@@ -89,25 +104,56 @@ export class ApprovalGate {
       status: 'pending',
       createdAt: Date.now(),
       meta,
+      confirmHash: hashConfirmCode(confirmCode),
     }
     this.items.set(req.id, req)
+    this.confirmCodes.set(req.id, confirmCode)
     await this.persist()
+    // Human-visible only (MCP clients / models typically do not receive stderr)
+    console.error(
+      `[aio:approval] id=${req.id} confirm_code=${confirmCode} action=${action} risk=${risk}`
+    )
     await getEventLog().emit('approval.requested', { id: req.id, action, risk })
     return req
+  }
+
+  private confirmCodeOk(req: ApprovalRequest, confirmCode?: string): boolean {
+    if (process.env.AIO_ALLOW_MCP_APPROVAL_RESOLVE === '1') return true
+    const code = (confirmCode || '').trim()
+    if (!code) return false
+    const mem = this.confirmCodes.get(req.id)
+    if (mem && mem === code) return true
+    if (req.confirmHash && hashConfirmCode(code) === req.confirmHash) return true
+    return false
   }
 
   async resolve(
     id: string,
     approved: boolean,
-    resolver = 'human'
+    resolver = 'human',
+    opts?: ResolveApprovalOptions
   ): Promise<ApprovalRequest | { error: string }> {
     this.expireOld()
     const req = this.items.get(id)
     if (!req) return { error: `Approval ${id} not found` }
     if (req.status !== 'pending') return { error: `Approval ${id} is ${req.status}` }
+
+    // Approving via MCP requires confirm_code from server stderr (or trusted CLI / env opt-in).
+    // Rejects remain open so a stuck gate can be closed without the code.
+    if (approved && !opts?.trustedLocal && !this.confirmCodeOk(req, opts?.confirmCode)) {
+      return {
+        error:
+          'confirm_code required to approve (see MCP server stderr / terminal for [aio:approval]). ' +
+          'Or run: aio approval resolve <id> --approve. ' +
+          'Automation: set AIO_ALLOW_MCP_APPROVAL_RESOLVE=1.',
+      }
+    }
+
     req.status = approved ? 'approved' : 'rejected'
     req.resolvedAt = Date.now()
     req.resolver = resolver
+    this.confirmCodes.delete(id)
+    delete req.confirmHash
     await this.persist()
     await getEventLog().emit('approval.resolved', {
       id,

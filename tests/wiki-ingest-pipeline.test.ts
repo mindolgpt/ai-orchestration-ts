@@ -32,7 +32,7 @@ describe('wiki ingest pipeline', () => {
     const outside = path.join(os.tmpdir(), `aio-outside-${Date.now()}.md`)
     await fs.writeFile(outside, 'secret', 'utf-8')
     await expect(readIngestFileContent(outside, root)).rejects.toThrow(
-      /under project or vault root/
+      /allowed roots|under project or vault root/
     )
     await fs.unlink(outside).catch(() => {})
   })

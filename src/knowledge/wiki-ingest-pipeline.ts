@@ -42,19 +42,7 @@ export interface IngestPipelineInput {
 
 const TEXT_EXT = new Set(['.md', '.txt', '.json', '.yaml', '.yml', '.csv', '.xml', '.html', '.htm'])
 
-function assertPathInsideRoots(absPath: string, roots: string[]): void {
-  const resolved = path.resolve(absPath)
-  const ok = roots.some((r) => {
-    const root = path.resolve(r)
-    const rel = path.relative(root, resolved)
-    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
-  })
-  if (!ok) {
-    throw new Error(
-      `file_path must be under project or vault root (got ${resolved}). Allowed: ${roots.join(', ')}`
-    )
-  }
-}
+import { resolveRealPathInsideRoots } from '@/security/path-containment'
 
 export async function readIngestFileContent(
   filePath: string,
@@ -64,7 +52,7 @@ export async function readIngestFileContent(
   const root = path.resolve(projectRoot || process.cwd())
   const abs = path.isAbsolute(filePath) ? path.resolve(filePath) : path.resolve(root, filePath)
   const roots = (allowedRoots?.length ? allowedRoots : [root]).map((r) => path.resolve(r))
-  assertPathInsideRoots(abs, roots)
+  await resolveRealPathInsideRoots(abs, roots)
 
   const ext = path.extname(abs).toLowerCase()
 

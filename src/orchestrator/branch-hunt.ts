@@ -6,6 +6,7 @@ import { Issue } from '@/knowledge/types'
 import { MessageInbox } from '@/mcp/inbox'
 import { ChildSession, spawnSession, waitForSession } from '@/mcp/tools/session-tools'
 import { getEventLog } from '@/observability/events'
+import { resolveContainedRelPaths } from '@/security/path-containment'
 
 const execFileAsync = promisify(execFile)
 
@@ -142,7 +143,7 @@ export class BranchHunt {
     const patterns = ISSUE_PATTERNS.filter((p) => severityRank(p.severity) >= minRank)
     if (!patterns.length) return []
 
-    const targets = paths?.length ? paths : ['.']
+    const targets = resolveContainedRelPaths(rootDir, paths)
     const found: Issue[] = []
     let rgAvailable = false
 
@@ -210,7 +211,7 @@ export class BranchHunt {
     gitignore: string[]
   ): Promise<Issue[]> {
     const found: Issue[] = []
-    const targets = paths?.length ? paths : ['.']
+    const targets = resolveContainedRelPaths(rootDir, paths)
     for (const rel of targets) {
       const abs = path.resolve(rootDir, rel)
       const files = await this.collectFiles(rootDir, abs, gitignore)

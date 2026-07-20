@@ -57,7 +57,26 @@ describe('ApprovalGate', () => {
     await gate.load()
     const req = await gate.request('deploy', 'prod', 'critical')
     expect(req.status).toBe('pending')
-    const resolved = await gate.resolve(req.id, true, 'tester')
+    const resolved = await gate.resolve(req.id, true, 'tester', { trustedLocal: true })
     expect(resolved).toMatchObject({ status: 'approved', resolver: 'tester' })
+  })
+
+  test('MCP-style approve without confirm_code is rejected', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-apr-'))
+    const gate = new ApprovalGate(root)
+    await gate.load()
+    const req = await gate.request('push', 'force', 'high')
+    const denied = await gate.resolve(req.id, true, 'agent')
+    expect(denied).toMatchObject({ error: expect.stringContaining('confirm_code') })
+    expect(gate.get(req.id)?.status).toBe('pending')
+  })
+
+  test('reject without confirm_code is allowed', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-apr-'))
+    const gate = new ApprovalGate(root)
+    await gate.load()
+    const req = await gate.request('push', 'force', 'high')
+    const rejected = await gate.resolve(req.id, false, 'agent')
+    expect(rejected).toMatchObject({ status: 'rejected' })
   })
 })

@@ -73,9 +73,7 @@ export function extractBrainstormAnswersFromMessage(message: string): Record<str
   const text = message.trim()
   const lower = text.toLowerCase()
 
-  const scaleMarked = lower.match(
-    /(?:scale|규모)\s*[:=]?\s*(mvp|growth|enterprise)\b/
-  )?.[1]
+  const scaleMarked = lower.match(/(?:scale|규모)\s*[:=]?\s*(mvp|growth|enterprise)\b/)?.[1]
   if (scaleMarked) answers.scale = scaleMarked
   if (!answers.scale && /^(mvp|growth|enterprise)$/i.test(text)) {
     answers.scale = text.toLowerCase()
@@ -154,12 +152,19 @@ function extractFreeText(message: string, matched: string[]): string {
   let text = message.trim()
   // Strip explicit tool ids first (longest first) — avoids "brainstorm" → "_design" leftovers
   for (const id of [...ALL_TOOL_IDS].sort((a, b) => b.length - a.length)) {
-    text = text.replace(new RegExp(`(?:^|[^a-z0-9])${id.replace(/_/g, '[_ ]?')}(?:[^a-z0-9]|$)`, 'gi'), ' ')
+    text = text.replace(
+      new RegExp(`(?:^|[^a-z0-9])${id.replace(/_/g, '[_ ]?')}(?:[^a-z0-9]|$)`, 'gi'),
+      ' '
+    )
   }
   for (const m of matched.sort((a, b) => b.length - a.length)) {
     text = stripMatchedToken(text, m)
   }
-  text = text.replace(FILLER_RE, ' ').replace(/^[_-]+/, '').replace(/\s+/g, ' ').trim()
+  text = text
+    .replace(FILLER_RE, ' ')
+    .replace(/^[_-]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
   return text || message.trim()
 }
 

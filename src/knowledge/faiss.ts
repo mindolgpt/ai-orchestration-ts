@@ -1,11 +1,14 @@
+import * as fs from 'node:fs'
+
 export interface FaissSearchResult {
   distances: Float32Array
   indices: Int32Array
 }
 
 export interface FaissIndex {
+  /** faiss-node requires a plain number[]; Float32Array is rejected at runtime. */
   add(vector: Float32Array | number[]): void
-  search(query: Float32Array, k: number): FaissSearchResult
+  search(query: Float32Array | number[], k: number): FaissSearchResult
   write(filename: string): void | Promise<void>
 }
 
@@ -54,10 +57,26 @@ export function createMockIndexFlatIP(): FaissIndexFlatIPCtor {
       }
     }
 
-    write() {}
+    /** Persist vectors beside the faiss path so mock survives process restart. */
+    write(filename: string) {
+      const payload = {
+        vectors: this.vectors.map((v) => Array.from(v)),
+      }
+      fs.writeFileSync(`${filename}.mock.json`, JSON.stringify(payload), 'utf-8')
+      // Tiny stub so pathExists(index.faiss) stays true for doctor
+      fs.writeFileSync(filename, Buffer.from('mock'), 'utf-8')
+    }
 
-    static read(_filename: string): MockIndex {
-      return new MockIndex()
+    static read(filename: string): MockIndex {
+      const idx = new MockIndex()
+      try {
+        const raw = fs.readFileSync(`${filename}.mock.json`, 'utf-8')
+        const parsed = JSON.parse(raw) as { vectors?: number[][] }
+        idx.vectors = (parsed.vectors || []).map((v) => Float32Array.from(v))
+      } catch {
+        // empty
+      }
+      return idx
     }
   }
 

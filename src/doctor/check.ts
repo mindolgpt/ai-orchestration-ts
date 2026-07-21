@@ -169,13 +169,32 @@ export async function runDoctor(opts?: {
     const faissPath = path.join(indexDir, 'index.faiss')
     const hasMeta = await pathExists(metaPath)
     const hasFaiss = await pathExists(faissPath)
-    indexReadyForEmbed = hasMeta
+    let indexedDocs = 0
+    if (hasMeta) {
+      try {
+        const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8')) as unknown
+        indexedDocs = Array.isArray(meta) ? meta.length : 0
+      } catch {
+        indexedDocs = 0
+      }
+    }
+    indexReadyForEmbed = hasMeta && indexedDocs > 0
+    const filesOk = hasMeta && hasFaiss
     checks.push({
       id: 'search_index',
-      severity: hasMeta && hasFaiss ? 'ok' : hasMeta ? 'warn' : 'fail',
+      severity: filesOk && indexedDocs > 0 ? 'ok' : filesOk ? 'warn' : 'fail',
       message:
-        hasMeta && hasFaiss ? `Search index (faiss): ${indexDir}` : `Index incomplete: ${indexDir}`,
-      fix: !hasMeta ? 'Run: aio init (or recall once to build index)' : undefined,
+        filesOk && indexedDocs > 0
+          ? `Search index (faiss): ${indexDir} (${indexedDocs} docs)`
+          : filesOk
+            ? `Search index empty (0 docs): ${indexDir}`
+            : `Index incomplete: ${indexDir}`,
+      fix:
+        indexedDocs === 0
+          ? 'Wiki files exist but vectors were not indexed. Run: aio reindex (or delete vault/.index and re-ingest)'
+          : !hasMeta
+            ? 'Run: aio init (or recall once to build index)'
+            : undefined,
     })
   } else {
     const probe = await probeRemoteVectorStore(storeKind)

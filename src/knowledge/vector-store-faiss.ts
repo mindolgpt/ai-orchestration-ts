@@ -31,8 +31,13 @@ export class FaissVectorStore implements VectorStore {
     const metaFile = path.join(this.indexDir, 'meta.json')
 
     try {
-      this.index = this.IndexFlatIP.read(indexFile)
       const meta = JSON.parse(await fs.readFile(metaFile, 'utf-8')) as KnowledgeDoc[]
+      // Empty meta + stub index.faiss is a common corrupt state — do not load it
+      // (add() then fails or no-ops and query_wiki stays at 0 hits forever).
+      if (!Array.isArray(meta) || meta.length === 0) {
+        throw new Error('empty search meta')
+      }
+      this.index = this.IndexFlatIP.read(indexFile)
       this.documents = meta
     } catch {
       this.index = new this.IndexFlatIP(dimension)
@@ -48,7 +53,8 @@ export class FaissVectorStore implements VectorStore {
       if (this.documents.some((d) => docKey(d.path) === key)) {
         throw new Error(`FAISS upsert: path already exists (${key}); use replaceAll`)
       }
-      this.index.add(new Float32Array(rec.vector))
+      // faiss-node IndexFlatIP.add requires a plain number[] (not Float32Array)
+      this.index.add(Array.from(rec.vector))
       this.documents.push(rec.document)
     }
   }
@@ -58,14 +64,14 @@ export class FaissVectorStore implements VectorStore {
     this.index = new this.IndexFlatIP(this.dimension)
     this.documents = records.map((r) => r.document)
     for (const rec of records) {
-      this.index.add(new Float32Array(rec.vector))
+      this.index.add(Array.from(rec.vector))
     }
   }
 
   async search(vector: number[], topK: number): Promise<VectorSearchHit[]> {
     if (!this.index || !this.documents.length) return []
     const { distances, indices } = this.index.search(
-      new Float32Array(vector),
+      Array.from(vector),
       Math.min(topK, this.documents.length)
     )
     const hits: VectorSearchHit[] = []

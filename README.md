@@ -3,17 +3,34 @@
 Parallel AI orchestration MCP server (`aio`).  
 Spawn sessions, run Task DAGs, maintain a knowledge wiki (RAG), and Branch Hunt from Cursor, Claude Code, OpenCode, and other MCP clients.
 
-**Node.js >= 20** · current version **2.14.0**
+**Node.js >= 20** · current version **2.14.1**
+
+### 2.14.1 — search index empty / `query_wiki` 0 hits
+
+| Change            | Detail                                                                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Root cause        | `faiss-node` `add()` requires a plain `number[]`; passing `Float32Array` threw and was swallowed → wiki on disk, index stayed `[]`. |
+| `aio init`        | No longer writes an empty FAISS index (empty meta + stub caused permanent 0-hit searches).                                          |
+| `aio reindex`     | Rebuild vectors from existing `vault/wiki/**/*.md`.                                                                                 |
+| Doctor            | Warns when index files exist but doc count is **0**.                                                                                |
+| Indexing errors   | `addDocument` now throws instead of silently failing.                                                                               |
+| Brainstorm lenses | BC keywords (`Cart`, `Order`, …) merge into `detected_focus` (e.g. “Cart MVP” no longer planning-only).                             |
+
+```bash
+# Fix an existing project with wiki pages but empty search:
+aio reindex
+# then restart MCP
+```
 
 ### 2.14 — brainstorm multi-turn · keyword routing fixes
 
-| Change | Detail |
-| ------ | ------ |
+| Change                         | Detail                                                                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Multi-turn `brainstorm_design` | Brief only after **both** `answers.phase` + `answers.scale` (or `skip_questions`). Already-answered questions are dropped from `clarifying_questions`. |
-| `aio_prompt` answers | Top-level `answers` accepts brainstorm fields (`phase`, `consistency`, `traffic`, …) and merges into the routed tool. |
-| Topic extraction | Stripping `brainstorm` no longer leaves `_design` from `brainstorm_design`; tool ids are removed before free-text extract. |
-| Wiki on clarify | Question-status responses still include wiki citations / context excerpt. |
-| Agent continue hint | Instructions tell the agent to **re-call with the same topic** + merged answers (not use a short reply like `design` as a new topic). |
+| `aio_prompt` answers           | Top-level `answers` accepts brainstorm fields (`phase`, `consistency`, `traffic`, …) and merges into the routed tool.                                  |
+| Topic extraction               | Stripping `brainstorm` no longer leaves `_design` from `brainstorm_design`; tool ids are removed before free-text extract.                             |
+| Wiki on clarify                | Question-status responses still include wiki citations / context excerpt.                                                                              |
+| Agent continue hint            | Instructions tell the agent to **re-call with the same topic** + merged answers (not use a short reply like `design` as a new topic).                  |
 
 ```json
 // Start

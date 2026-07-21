@@ -87,22 +87,26 @@ describe('vector store env switch', () => {
   })
 })
 
+function mockEmbedder(dimension = 3) {
+  return {
+    dimension,
+    async embed(texts: string[]) {
+      return texts.map((t) => {
+        const n = t.length || 1
+        const v = [n, n * 0.5, 1].slice(0, dimension)
+        while (v.length < dimension) v.push(1)
+        const norm = Math.hypot(...v) || 1
+        return v.map((x) => x / norm)
+      })
+    },
+  }
+}
+
 describe('SemanticSearch faiss path (default)', () => {
   test('add + search + save roundtrip', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-vs-'))
     const indexDir = path.join(root, '.index')
-    const embedder = {
-      dimension: 3,
-      async embed(texts: string[]) {
-        return texts.map((t) => {
-          const n = t.length || 1
-          const v = [n, n * 0.5, 1]
-          const norm = Math.hypot(...v) || 1
-          return v.map((x) => x / norm)
-        })
-      },
-    }
-    const search = new SemanticSearch(embedder, indexDir)
+    const search = new SemanticSearch(mockEmbedder(), indexDir)
     await search.load()
     await search.addDocument('wiki/a', 'A', 'cart checkout rules')
     await search.save()
@@ -113,5 +117,45 @@ describe('SemanticSearch faiss path (default)', () => {
     expect(hits[0].title).toBe('A')
     // meta.json is always persisted (vectors may be mock/in-memory without faiss-node)
     await expect(fs.stat(path.join(indexDir, 'meta.json'))).resolves.toBeDefined()
+  })
+
+  test('empty meta.json does not block indexing (corrupt stub recovery)', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-vs-empty-'))
+    const indexDir = path.join(root, '.index')
+    await fs.mkdir(indexDir, { recursive: true })
+    await fs.writeFile(path.join(indexDir, 'meta.json'), '[]', 'utf-8')
+    await fs.writeFile(path.join(indexDir, 'index.faiss'), 'mock', 'utf-8')
+
+    const search = new SemanticSearch(mockEmbedder(), indexDir)
+    await search.load()
+    expect(search.documentCount).toBe(0)
+    await search.addDocument('wiki/catalog', 'Catalog', 'product PIM SKU')
+    await search.save()
+    expect(search.documentCount).toBe(1)
+
+    const hits = await search.search('PIM product', 3)
+    expect(hits.length).toBeGreaterThan(0)
+    expect(hits[0].title).toBe('Catalog')
+
+    const meta = JSON.parse(
+      await fs.readFile(path.join(indexDir, 'meta.json'), 'utf-8')
+    ) as unknown[]
+    expect(meta.length).toBe(1)
+  })
+
+  test('addDocument throws instead of swallowing embed/store errors', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-vs-throw-'))
+    const indexDir = path.join(root, '.index')
+    const search = new SemanticSearch(
+      {
+        dimension: 3,
+        async embed() {
+          throw new Error('embed boom')
+        },
+      },
+      indexDir
+    )
+    await search.load()
+    await expect(search.addDocument('wiki/a', 'A', 'content')).rejects.toThrow(/embed boom/)
   })
 })

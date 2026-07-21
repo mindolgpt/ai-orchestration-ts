@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import * as fs from 'fs/promises'
 import { Command, OptionValues } from 'commander'
 
 interface InitOptions extends OptionValues {
@@ -46,7 +47,7 @@ const program = new Command()
 program
   .name('aio')
   .description('AI Orchestration System — parallel AI orchestration CLI')
-  .version('2.14.0')
+  .version('2.14.1')
 
 program
   .command('init')
@@ -64,16 +65,57 @@ program
     console.log(`  ✓ Vault: ${vaultPath}`)
     console.log(`  ✓ Layers: raw/ + wiki/ + AGENTS.md (schema)`)
 
-    const embedder = createEmbedder()
     console.log(`  ✓ Embedding model: ${process.env.EMBEDDING_MODEL || 'auto'}`)
 
     const indexDir = resolveIndexDir(vaultPath)
-    const search = new SemanticSearch(embedder, indexDir)
-    await search.save()
-    console.log(`  ✓ Search index: ${indexDir}`)
+    await fs.mkdir(indexDir, { recursive: true })
+    // Do NOT persist an empty FAISS index — empty meta.json + stub index.faiss
+    // makes later add() fail/no-op and query_wiki returns 0 forever.
+    console.log(`  ✓ Search index dir: ${indexDir}`)
+    console.log(chalk.dim('    (vectors are created on first ingest / aio reindex)'))
 
     console.log(chalk.green('\nInit complete!'))
     console.log(chalk.dim('  Next: aio bootstrap-harness → aio doctor'))
+  })
+
+program
+  .command('reindex')
+  .option('--vault <path>', 'Obsidian vault path')
+  .description('Rebuild FAISS search index from existing vault/wiki notes')
+  .action(async (options: { vault?: string }) => {
+    console.log(chalk.bold.cyan('\n🔍 aio reindex — rebuild search index from wiki'))
+    const vaultPath = resolveVaultRoot(options.vault)
+    const vault = new ObsidianVault(vaultPath)
+    await vault.initialize()
+
+    const embedder = createEmbedder()
+    const search = new SemanticSearch(embedder, {
+      indexDir: resolveIndexDir(vaultPath),
+      vaultRoot: vaultPath,
+    })
+    await search.load()
+
+    const notes = (await vault.listNotes('wiki')).filter((p) => {
+      const base = p.replace(/\\/g, '/')
+      return base !== 'wiki/index' && base !== 'wiki/log'
+    })
+
+    console.log(`  Vault: ${vaultPath}`)
+    console.log(`  Notes: ${notes.length}`)
+
+    let ok = 0
+    for (const notePath of notes) {
+      const content = await vault.readNote(notePath)
+      if (!content?.trim()) continue
+      const title =
+        content.match(/^#\s+(.+)$/m)?.[1]?.trim() || notePath.split(/[/\\]/).pop() || notePath
+      await search.addDocument(notePath, title, content)
+      ok++
+      console.log(chalk.dim(`  + ${notePath}`))
+    }
+
+    await search.save()
+    console.log(chalk.green(`\nReindex complete — ${ok} documents indexed`))
   })
 
 program

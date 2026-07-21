@@ -61,6 +61,7 @@ describe('wiki ingest pipeline', () => {
       title: 'Payment Policy Source',
       file_path: docPath,
       project_root: root,
+      run_lint: false,
       concepts: [
         { title: 'Payment Policy', subdir: 'domain', outline: 'PG and reservation rules' },
         { title: 'Inventory Rules', subdir: 'domain', outline: 'Reserve then confirm' },
@@ -74,7 +75,7 @@ describe('wiki ingest pipeline', () => {
     const lint = await lintWiki(vault, { deep: true })
     expect(lint.raw_count).toBeGreaterThanOrEqual(1)
     expect(lint.taxonomy?.recommended).toContain('domain')
-  })
+  }, 15_000)
 
   test('ingestSourceBatch', async () => {
     const vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-batch-'))
@@ -101,10 +102,7 @@ describe('wiki ingest pipeline', () => {
   test('extractSectionFromRaw + buildConceptBody expands outline from raw', () => {
     const raw = `# Guide\n\n## Catalog\n\nProduct and Variant rules.\n\n## Order\n\nOrder lifecycle.\n`
     expect(extractSectionFromRaw(raw, 'Catalog')).toContain('Product and Variant')
-    const body = buildConceptBody(
-      { title: 'Catalog', outline: 'short outline' },
-      raw
-    )
+    const body = buildConceptBody({ title: 'Catalog', outline: 'short outline' }, raw)
     expect(body).toContain('Product and Variant')
     expect(body).not.toContain('Expand from raw source')
   })

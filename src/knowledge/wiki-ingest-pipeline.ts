@@ -138,10 +138,7 @@ export function extractSectionFromRaw(
   return section.length >= 20 ? section : null
 }
 
-export function buildConceptBody(
-  c: IngestConceptInput,
-  rawText?: string
-): string {
+export function buildConceptBody(c: IngestConceptInput, rawText?: string): string {
   if (c.content?.trim()) return c.content.trim()
 
   if (rawText?.trim()) {
@@ -178,7 +175,14 @@ export function buildConceptBody(
 export async function loadRawDocument(
   vault: ObsidianVault,
   rawId: string
-): Promise<{ id: string; path: string; title: string; body: string; full: string; checksum?: string }> {
+): Promise<{
+  id: string
+  path: string
+  title: string
+  body: string
+  full: string
+  checksum?: string
+}> {
   const id = rawId.trim()
   if (!id) throw new Error('raw_id is required')
 
@@ -204,7 +208,12 @@ export async function loadRawDocument(
       title = titleMatch[1].replace(/^"|"$/g, '').trim()
     }
   } else {
-    const fromPath = match.replace(/^raw\//, '').replace(/\.md$/, '').split('--').slice(1).join('--')
+    const fromPath = match
+      .replace(/^raw\//, '')
+      .replace(/\.md$/, '')
+      .split('--')
+      .slice(1)
+      .join('--')
     if (fromPath) title = fromPath.replace(/-/g, ' ')
   }
 

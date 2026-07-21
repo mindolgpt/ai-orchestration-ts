@@ -83,32 +83,24 @@ export class SemanticSearch {
       const next = [...this.docsByPath.values()].map((d) =>
         normalizeDocPath(d.path) === norm ? doc : d
       )
-      try {
-        const embeddings = await this.embedder.embed(next.map((d) => d.content))
-        await this.store.replaceAll(
-          next.map((d, i) => ({
-            id: normalizeDocPath(d.path),
-            vector: embeddings[i],
-            document: d,
-          }))
-        )
-        this.docsByPath.clear()
-        for (const d of next) this.docsByPath.set(normalizeDocPath(d.path), d)
-        this._cachedCount = next.length
-      } catch (err) {
-        console.error('Index rebuild failed:', err)
-      }
+      const embeddings = await this.embedder.embed(next.map((d) => d.content))
+      await this.store.replaceAll(
+        next.map((d, i) => ({
+          id: normalizeDocPath(d.path),
+          vector: embeddings[i],
+          document: d,
+        }))
+      )
+      this.docsByPath.clear()
+      for (const d of next) this.docsByPath.set(normalizeDocPath(d.path), d)
+      this._cachedCount = next.length
       return
     }
 
     const emb = await this.embedder.embed([content])
-    try {
-      await this.store.upsert([{ id: norm, vector: emb[0], document: doc }])
-      this.docsByPath.set(norm, doc)
-      this._cachedCount = this.docsByPath.size
-    } catch (err) {
-      console.error('Index add failed:', err)
-    }
+    await this.store.upsert([{ id: norm, vector: emb[0], document: doc }])
+    this.docsByPath.set(norm, doc)
+    this._cachedCount = this.docsByPath.size
   }
 
   /** Exposed for tests — number of indexed documents (after dedupe). */

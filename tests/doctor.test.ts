@@ -31,8 +31,13 @@ describe('runDoctor', () => {
     await fs.writeFile(path.join(root, 'AGENTS.md'), '# agents', 'utf-8')
     await fs.writeFile(path.join(root, '.aio', 'domain-profile.yaml'), 'domain: x', 'utf-8')
     await fs.mkdir(path.join(vaultPath, '.index'), { recursive: true })
-    await fs.writeFile(path.join(vaultPath, '.index', 'meta.json'), '{}', 'utf-8')
-    await fs.writeFile(path.join(vaultPath, '.index', 'index.faiss'), '', 'utf-8')
+    // Indexed docs present — doctor search_index should be ok
+    await fs.writeFile(
+      path.join(vaultPath, '.index', 'meta.json'),
+      JSON.stringify([{ path: 'wiki/a', title: 'A', content: '# A', tags: [], links: [] }]),
+      'utf-8'
+    )
+    await fs.writeFile(path.join(vaultPath, '.index', 'index.faiss'), 'mock', 'utf-8')
 
     const report = await runDoctor({
       projectRoot: root,
@@ -40,7 +45,27 @@ describe('runDoctor', () => {
     })
     expect(report.checks.find((c) => c.id === 'vault')?.severity).toBe('ok')
     expect(report.checks.find((c) => c.id === 'wiki_pages')?.severity).toBe('ok')
+    expect(report.checks.find((c) => c.id === 'search_index')?.severity).toBe('ok')
     expect(report.project_root).toBe(root)
+  })
+
+  test('warns when search index files exist but doc count is 0', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-doc-empty-idx-'))
+    const vaultPath = path.join(root, 'vault')
+    const vault = new ObsidianVault(vaultPath)
+    await vault.initialize()
+    await vault.writeNote('wiki/a', '# A', ['wiki'])
+    await vault.writeNote('wiki/b', '# B', ['wiki'])
+    await vault.writeNote('wiki/c', '# C', ['wiki'])
+    await fs.mkdir(path.join(vaultPath, '.index'), { recursive: true })
+    await fs.writeFile(path.join(vaultPath, '.index', 'meta.json'), '[]', 'utf-8')
+    await fs.writeFile(path.join(vaultPath, '.index', 'index.faiss'), 'mock', 'utf-8')
+
+    const report = await runDoctor({ projectRoot: root, skipEmbedTest: true })
+    const idx = report.checks.find((c) => c.id === 'search_index')
+    expect(idx?.severity).toBe('warn')
+    expect(idx?.message).toMatch(/0 docs/i)
+    expect(idx?.fix).toMatch(/reindex/i)
   })
 
   test('flags foreign harness files', async () => {

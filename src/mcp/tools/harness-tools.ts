@@ -100,7 +100,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
         harness: {
           targets: args.targets,
           force: args.force,
-          answers: mergedParams.answers as Record<string, unknown> | undefined,
+          answers: mergedParams.answers,
         },
       })
 

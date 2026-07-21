@@ -443,13 +443,18 @@ export async function brainstormDesign(
   }
 ): Promise<BrainstormResult> {
   const root = opts?.project_root || resolveProjectRoot()
-  const detectedFocus = detectFocusFromTopic(topic, opts?.focus)
+  const domainRules = matchDomainPatterns(topic)
+  // Merge BC pattern focuses (cart/order/…) into detected lenses — otherwise
+  // "Cart MVP" only lights up planning from "MVP" and skips domain/ux options.
+  let detectedFocus = detectFocusFromTopic(topic, opts?.focus)
+  if (!opts?.focus?.length && domainRules.length) {
+    detectedFocus = [...new Set([...detectedFocus, ...domainRules.flatMap((r) => r.focus)])]
+  }
   const lenses = buildLenses(detectedFocus)
   const stacks = detectStacksFromText(topic)
   const { profile } = await loadDomainProfile(vault, root)
   if (!stacks.backend && profile.stack?.backend) stacks.backend = profile.stack.backend
 
-  const domainRules = matchDomainPatterns(topic)
   const focusPlaybooks = collectFocusPlaybooks(detectedFocus)
   const answers = opts?.answers
 
@@ -474,8 +479,7 @@ export async function brainstormDesign(
   const contextExcerpt = pack.pages.map((p) => `### ${p.title}\n${p.excerpt}`).join('\n\n')
 
   // Need both scale + phase (or skip) before emitting a ranked brief
-  const readyForBrief =
-    opts?.skip_questions === true || (!!answers?.scale && !!answers?.phase)
+  const readyForBrief = opts?.skip_questions === true || (!!answers?.scale && !!answers?.phase)
 
   if (!readyForBrief) {
     return {

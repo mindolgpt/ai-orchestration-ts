@@ -87,6 +87,23 @@ describe('brainstormDesign full lifecycle', () => {
     expect(r.agent_instructions).toContain('UX')
   })
 
+  test('Cart MVP marks domain/ux lenses from BC pattern', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-brain-cart-mvp-'))
+    const vault = new ObsidianVault(path.join(root, 'vault'))
+    await vault.initialize()
+
+    const r = await brainstormDesign(vault, mockSearch(), 'Cart MVP', {
+      project_root: root,
+      answers: { scale: 'mvp', phase: 'design' },
+      write_docs: false,
+    })
+
+    expect(r.detected_focus).toContain('domain')
+    expect(r.detected_focus).toContain('ux')
+    expect(r.development_lenses.find((l) => l.focus === 'domain')?.relevant).toBe(true)
+    expect(r.options.some((o) => o.focus === 'domain' || o.focus === 'database')).toBe(true)
+  })
+
   test('cart topic includes domain + ux', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-brain-cart-'))
     const vaultPath = path.join(root, 'vault')

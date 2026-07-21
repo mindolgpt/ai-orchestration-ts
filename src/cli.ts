@@ -72,7 +72,34 @@ program
     // Do NOT persist an empty FAISS index — empty meta.json + stub index.faiss
     // makes later add() fail/no-op and query_wiki returns 0 forever.
     console.log(`  ✓ Search index dir: ${indexDir}`)
-    console.log(chalk.dim('    (vectors are created on first ingest / aio reindex)'))
+
+    // Auto-reindex if wiki files already exist
+    const existingNotes = (await vault.listNotes('wiki')).filter((p) => {
+      const base = p.replace(/\\/g, '/')
+      return base !== 'wiki/index' && base !== 'wiki/log'
+    })
+    if (existingNotes.length > 0) {
+      console.log(
+        chalk.dim(`  Found ${existingNotes.length} existing wiki page(s) — rebuilding index...`)
+      )
+      const embedder = createEmbedder()
+      const search = new SemanticSearch(embedder, {
+        indexDir,
+        vaultRoot: vaultPath,
+      })
+      await search.load()
+      for (const notePath of existingNotes) {
+        const content = await vault.readNote(notePath)
+        if (!content?.trim()) continue
+        const title =
+          content.match(/^#\s+(.+)$/m)?.[1]?.trim() || notePath.split(/[/\\]/).pop() || notePath
+        await search.addDocument(notePath, title, content)
+      }
+      await search.save()
+      console.log(chalk.green(`  ✓ Index rebuilt — ${existingNotes.length} documents`))
+    } else {
+      console.log(chalk.dim('    (vectors are created on first ingest / aio reindex)'))
+    }
 
     console.log(chalk.green('\nInit complete!'))
     console.log(chalk.dim('  Next: aio bootstrap-harness → aio doctor'))

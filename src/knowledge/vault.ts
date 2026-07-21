@@ -54,6 +54,11 @@ export class ObsidianVault {
     if (parts.some((p) => p === '..')) {
       throw new Error(`Invalid vault path (escapes root): ${relative}`)
     }
+    if (parts.some((p) => /[,{}[\]()]/g.test(p))) {
+      throw new Error(
+        `Invalid vault path (special characters not allowed in segment "${parts.find((p) => /[,{}[\]()]/g.test(p))}"): ${relative}`
+      )
+    }
     const fullNoExt = path.resolve(this.root, ...parts)
     const rootResolved = path.resolve(this.root)
     const rel = path.relative(rootResolved, fullNoExt)

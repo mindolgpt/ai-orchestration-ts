@@ -72,7 +72,7 @@ export function slugifyTitle(title: string): string {
   )
 }
 
-/** Sanitize taxonomy subdir under wiki/ (rejects `..` segments). */
+/** Sanitize taxonomy subdir under wiki/ (rejects `..` segments and special chars). */
 export function sanitizeWikiSubdir(subdir?: string): string | undefined {
   if (!subdir?.trim()) return undefined
   const parts = subdir
@@ -80,7 +80,7 @@ export function sanitizeWikiSubdir(subdir?: string): string | undefined {
     .replace(/\\/g, '/')
     .replace(/^\/+|\/+$/g, '')
     .split('/')
-    .filter((p) => p && p !== '.' && p !== '..')
+    .filter((p) => p && p !== '.' && p !== '..' && !/[,{}[\]()]/g.test(p))
   return parts.length ? parts.join('/') : undefined
 }
 

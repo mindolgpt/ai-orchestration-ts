@@ -5,6 +5,7 @@ import {
   buildDomainContextPack,
   cacheContextPack,
   contextPackToMarkdown,
+  contextCachePath,
 } from '@/harness/context-pack'
 import { loadDomainProfile } from '@/harness/profile'
 import { DomainLoopResult } from '@/harness/types'
@@ -19,16 +20,23 @@ export async function runDomainLoop(
     include_plan?: boolean
     cache?: boolean
     project_root?: string
+    /** json | markdown | path (cache file only — lowest tokens) */
+    format?: 'json' | 'markdown' | 'path'
   }
-): Promise<DomainLoopResult> {
+): Promise<DomainLoopResult | { cache_path: string; format: 'path' }> {
   const pack = await buildDomainContextPack(vault, search, task, {
     top_k: opts?.top_k,
     extra_queries: opts?.extra_queries,
     project_root: opts?.project_root,
   })
 
-  if (opts?.cache !== false) {
-    await cacheContextPack(pack, opts?.project_root)
+  const cachePath =
+    opts?.cache !== false
+      ? await cacheContextPack(pack, opts?.project_root)
+      : contextCachePath(opts?.project_root)
+
+  if (opts?.format === 'path') {
+    return { cache_path: cachePath, format: 'path' as const }
   }
 
   const { profile } = await loadDomainProfile(vault, opts?.project_root)
@@ -82,10 +90,58 @@ export async function runDomainLoop(
     .filter(Boolean)
     .join('\n')
 
+  if (opts?.format === 'markdown') {
+    return {
+      phase: 'bootstrap',
+      format: 'markdown' as const,
+      markdown: agentInstructions,
+      cache_path: cachePath,
+      plan_stub: planStub,
+    }
+  }
+
   return {
     phase: 'bootstrap',
     context_pack: pack,
     plan_stub: planStub,
-    agent_instructions: agentInstructions,
+    cache_path: cachePath,
   }
+}
+
+/** Unified domain context — replaces separate bootstrap_domain / run_domain_loop calls. */
+export async function domainContext(
+  vault: ObsidianVault,
+  search: SemanticSearch,
+  task: string,
+  opts?: {
+    top_k?: number
+    extra_queries?: string[]
+    include_plan?: boolean
+    format?: 'json' | 'markdown' | 'path'
+    project_root?: string
+  }
+) {
+  if (opts?.include_plan) {
+    return runDomainLoop(vault, search, task, {
+      ...opts,
+      include_plan: true,
+      cache: true,
+    })
+  }
+  const pack = await buildDomainContextPack(vault, search, task, {
+    top_k: opts?.top_k,
+    extra_queries: opts?.extra_queries,
+    project_root: opts?.project_root,
+  })
+  const cachePath = await cacheContextPack(pack, opts?.project_root)
+  if (opts?.format === 'path') {
+    return { cache_path: cachePath, format: 'path' as const }
+  }
+  if (opts?.format === 'markdown') {
+    return {
+      markdown: contextPackToMarkdown(pack),
+      cache_path: cachePath,
+    }
+  }
+  return { ...pack, cache_path: cachePath }
 }

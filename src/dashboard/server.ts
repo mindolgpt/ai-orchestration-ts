@@ -126,7 +126,8 @@ const statsInflight = new Map<string, Promise<DashboardStats>>()
 export async function collectDashboardStats(
   vault: ObsidianVault,
   projectRoot?: string,
-  search?: SemanticSearch
+  search?: SemanticSearch,
+  opts?: { quick?: boolean }
 ): Promise<DashboardStats> {
   const root = projectRoot || resolveProjectRoot()
   const key = `${path.resolve(root)}::${path.resolve(vault.rootPath)}`
@@ -135,22 +136,26 @@ export async function collectDashboardStats(
 
   const promise = (async (): Promise<DashboardStats> => {
     const lint = await lintWiki(vault, { deep: false })
-    const proposals = await listWikiProposals(root)
+    const proposals = opts?.quick ? [] : await listWikiProposals(root)
     const vaults = await listVaultEntries(root)
     const registry = await loadVaultRegistry(root)
 
     await ensureRawInbox(vault.rootPath)
     const pendingNames = await listTextFiles(rawInboxDir(vault.rootPath))
-    const failedNames = await listTextFiles(path.join(vault.rootPath, 'raw-inbox', 'failed'))
+    const failedNames = opts?.quick
+      ? []
+      : await listTextFiles(path.join(vault.rootPath, 'raw-inbox', 'failed'))
 
-    const events = await getEventLog(root).recentAsync(40)
+    const events = opts?.quick ? [] : await getEventLog(root).recentAsync(40)
 
-    const doctor = await runDoctor({
-      projectRoot: root,
-      vault: vault.rootPath,
-      skipEmbedTest: true,
-      quick: true,
-    })
+    const doctor = opts?.quick
+      ? null
+      : await runDoctor({
+          projectRoot: root,
+          vault: vault.rootPath,
+          skipEmbedTest: true,
+          quick: true,
+        })
 
     const envName = process.env.AIO_VAULT_NAME?.trim() || null
     const activeName = envName || registry.default
@@ -199,17 +204,19 @@ export async function collectDashboardStats(
         failed_files: failedNames.length,
         failed_names: failedNames.slice(0, 20),
       },
-      doctor: {
-        ok: doctor.ok,
-        fail: doctor.checks.filter((c) => c.severity === 'fail').length,
-        warn: doctor.checks.filter((c) => c.severity === 'warn').length,
-        package_version: doctor.package_version,
-        checks: doctor.checks
-          .filter((c) => c.severity !== 'ok')
-          .slice(0, 15)
-          .map((c) => ({ id: c.id, severity: c.severity, message: c.message })),
-        next_steps: doctor.next_steps.slice(0, 6),
-      },
+      doctor: doctor
+        ? {
+            ok: doctor.ok,
+            fail: doctor.checks.filter((c) => c.severity === 'fail').length,
+            warn: doctor.checks.filter((c) => c.severity === 'warn').length,
+            package_version: doctor.package_version,
+            checks: doctor.checks
+              .filter((c) => c.severity !== 'ok')
+              .slice(0, 15)
+              .map((c) => ({ id: c.id, severity: c.severity, message: c.message })),
+            next_steps: doctor.next_steps.slice(0, 6),
+          }
+        : { ok: true, fail: 0, warn: 0, package_version: 'unknown', checks: [], next_steps: [] },
       vaults: vaults.map((v) => ({
         name: v.name,
         path: v.path,

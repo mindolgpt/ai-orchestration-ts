@@ -440,6 +440,8 @@ export async function brainstormDesign(
     answers?: BrainstormAnswers
     skip_questions?: boolean
     write_docs?: boolean
+    /** structured (default, no duplicate markdown) | markdown (narrative only) */
+    response_format?: 'structured' | 'markdown'
   }
 ): Promise<BrainstormResult> {
   const root = opts?.project_root || resolveProjectRoot()
@@ -598,5 +600,24 @@ export async function brainstormDesign(
     docs_written = [mdPath]
   }
 
-  return { ...partial, agent_instructions, markdown, docs_written }
+  const briefPartial = { ...partial, context_excerpt: contextExcerpt.slice(0, 4000) }
+
+  if (opts?.response_format === 'markdown') {
+    return {
+      status: 'brief',
+      topic,
+      markdown,
+      docs_written,
+    } as BrainstormResult
+  }
+
+  if (opts?.response_format === 'structured') {
+    return { ...briefPartial, docs_written }
+  }
+
+  return {
+    ...briefPartial,
+    docs_written,
+    workflow_hint: 'Use response_format:markdown for narrative copy',
+  }
 }

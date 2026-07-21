@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { BranchHunt } from '@/orchestrator/branch-hunt'
 import { ChildSession } from '@/mcp/tools/session-tools'
 import { resolveProjectRoot } from '@/knowledge/paths'
+import { registerMcpTool } from '@/mcp/register-tool'
 
 export function registerBranchTools(
   server: McpServer,
@@ -13,7 +14,8 @@ export function registerBranchTools(
 ): void {
   const root = projectRoot || resolveProjectRoot()
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'scan_issues',
     {
       description:
@@ -77,10 +79,12 @@ export function registerBranchTools(
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'collect_results',
     {
       description: 'Collect branch-hunt results joined by issue.session_id',
+      inputSchema: z.object({}),
     },
     async () => {
       const results = await branchHunt.collectResults(sessions)
@@ -95,10 +99,12 @@ export function registerBranchTools(
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'get_branch_status',
     {
       description: 'Branch hunt status summary',
+      inputSchema: z.object({}),
     },
     async () => ({
       content: [

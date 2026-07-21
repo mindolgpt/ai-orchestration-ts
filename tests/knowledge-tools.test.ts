@@ -25,8 +25,9 @@ function createMockServer() {
 function createMockVault() {
   return {
     initialize: vi.fn(),
-    writeNote: vi.fn((path: string, content: string) => Promise.resolve(`/vault/${path}.md`)),
-    readNote: vi.fn(),
+    writeNote: vi.fn((p: string, content: string) => Promise.resolve(`/vault/${p}.md`)),
+    readNote: vi.fn(() => Promise.resolve('# Test\n\nBody')),
+    readSchema: vi.fn(() => Promise.resolve('# Schema')),
     listNotes: vi.fn(),
     getTags: vi.fn(),
     searchByTag: vi.fn(),
@@ -37,7 +38,7 @@ function createMockSearch() {
   return {
     load: vi.fn(),
     save: vi.fn(),
-    search: vi.fn((query: string) =>
+    search: vi.fn(() =>
       Promise.resolve([
         { path: 'wiki/test', title: 'Test', score: 0.95, snippet: 'test content', tags: ['test'] },
       ])
@@ -53,7 +54,7 @@ describe('registerKnowledgeTools', () => {
     expect(tools.map((t) => t.name)).toEqual(['recall_knowledge', 'store_knowledge'])
   })
 
-  test('recall_knowledge calls search.search', async () => {
+  test('recall_knowledge wraps query_wiki snippets (deprecated)', async () => {
     const { server, getCallback } = createMockServer()
     const mockSearch = createMockSearch()
     registerKnowledgeTools(server, mockSearch, createMockVault())
@@ -62,12 +63,14 @@ describe('registerKnowledgeTools', () => {
     const result = await cb({ query: 'hello', top_k: 3 })
 
     expect(mockSearch.load).toHaveBeenCalled()
-    expect(mockSearch.search).toHaveBeenCalledWith('hello', 3)
+    expect(mockSearch.search).toHaveBeenCalled()
     const parsed = JSON.parse(result.content[0].text)
+    expect(parsed.deprecated).toBe(true)
+    expect(parsed.use_instead).toBe('query_wiki')
     expect(parsed.results[0].title).toBe('Test')
   })
 
-  test('store_knowledge calls vault.writeNote and search.addDocument', async () => {
+  test('store_knowledge calls vault.writeNote and search.addDocument (deprecated)', async () => {
     const { server, getCallback } = createMockServer()
     const mockSearch = createMockSearch()
     const mockVault = createMockVault()
@@ -86,6 +89,7 @@ describe('registerKnowledgeTools', () => {
     expect(mockSearch.addDocument).toHaveBeenCalled()
     expect(mockSearch.save).toHaveBeenCalled()
     const parsed = JSON.parse(result.content[0].text)
+    expect(parsed.deprecated).toBe(true)
     expect(parsed.path).toContain('doc/hello')
   })
 })

@@ -8,6 +8,7 @@ import { createWorktree, removeWorktree } from '@/orchestrator/worktree'
 import { getEventLog } from '@/observability/events'
 import { resolveProjectRoot } from '@/knowledge/paths'
 import { buildChildEnv } from '@/security/child-env'
+import { registerMcpTool } from '@/mcp/register-tool'
 
 export interface ChildSession {
   id: string
@@ -34,6 +35,7 @@ export interface SpawnSessionOptions {
   worktree?: boolean
   cwd?: string
   projectRoot?: string
+  timeout_ms?: number
 }
 
 function runningCount(sessions: Map<string, ChildSession>): number {
@@ -221,6 +223,7 @@ export async function spawnSession(
     command: spec.command,
     worktree: worktreePath || null,
     worktree_branch: worktreeBranch || null,
+    timeout_ms: opts?.timeout_ms ?? 300_000,
   }
 }
 
@@ -368,7 +371,8 @@ export function registerSessionTools(
 ): void {
   const results = dagResults || new Map<string, unknown>()
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'spawn_session',
     {
       description:
@@ -389,6 +393,7 @@ export function registerSessionTools(
             await spawnSession(sessions, inbox, maxSessions, args.task, args.context, {
               runtime: args.runtime,
               worktree: args.worktree,
+              timeout_ms: args.timeout_ms,
             })
           ),
         },
@@ -396,7 +401,8 @@ export function registerSessionTools(
     })
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'check_inbox',
     {
       description: 'Poll child session results (unread)',
@@ -418,7 +424,8 @@ export function registerSessionTools(
     })
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'report_result',
     {
       description:
@@ -472,7 +479,8 @@ export function registerSessionTools(
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'send_message',
     {
       description: 'Queue an instruction for a session (pending_messages). Not a live IPC channel.',
@@ -500,7 +508,8 @@ export function registerSessionTools(
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'get_session',
     {
       description: 'Get session status, logs, pending messages, worktree',
@@ -543,7 +552,8 @@ export function registerSessionTools(
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'close_session',
     {
       description: 'Kill running process if needed and remove session; optional worktree cleanup',
@@ -570,10 +580,12 @@ export function registerSessionTools(
     })
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'list_sessions',
     {
       description: 'List sessions (running count used for maxSessions)',
+      inputSchema: z.object({}),
     },
     async () => ({
       content: [
@@ -598,7 +610,8 @@ export function registerSessionTools(
     })
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'synthesize_results',
     {
       description:

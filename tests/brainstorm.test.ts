@@ -83,8 +83,15 @@ describe('brainstormDesign full lifecycle', () => {
     expect(r.development_lenses.length).toBeGreaterThanOrEqual(10)
     expect(r.detected_focus).toContain('planning')
     expect(r.options.some((o) => o.focus === 'planning' || o.focus === 'ux')).toBe(true)
-    expect(r.agent_instructions).toContain('기획')
-    expect(r.agent_instructions).toContain('UX')
+    expect(r.recommendation.primary).toBeTruthy()
+    const withMarkdown = await brainstormDesign(vault, mockSearch(), '체크아웃 기획 UX 디자인', {
+      project_root: root,
+      skip_questions: true,
+      answers: { scale: 'mvp', phase: 'discovery' },
+      response_format: 'markdown',
+      write_docs: false,
+    })
+    expect(withMarkdown.markdown).toContain('기획')
   })
 
   test('Cart MVP marks domain/ux lenses from BC pattern', async () => {

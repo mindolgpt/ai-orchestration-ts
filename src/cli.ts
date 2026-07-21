@@ -334,7 +334,12 @@ program
         console.log(`    • ${p.wiki_page}`)
       }
       if (result.lint) {
-        console.log(`  Lint ok: ${result.lint.ok} (${result.lint.issues.length} issues)`)
+        const lint = result.lint as { ok?: boolean; issue_count?: number; issues?: unknown[] }
+        if ('issue_count' in lint) {
+          console.log(`  Lint ok: ${lint.ok} (${lint.issue_count} issues)`)
+        } else if ('issues' in lint && Array.isArray(lint.issues)) {
+          console.log(`  Lint ok: ${lint.ok} (${lint.issues.length} issues)`)
+        }
       }
     }
   )

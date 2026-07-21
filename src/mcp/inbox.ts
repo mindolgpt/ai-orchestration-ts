@@ -49,6 +49,7 @@ export class MessageInbox {
   private redis: RedisLike | null = null
   private redisKey = 'aio:inbox'
   private ready: Promise<void>
+  private persistChain: Promise<void> = Promise.resolve()
 
   constructor(storagePathOrOpts?: string | InboxOptions) {
     const opts: InboxOptions =
@@ -129,8 +130,22 @@ export class MessageInbox {
       read: false,
     }
     this.messages.push(message)
-    this.persist().catch(() => {})
+    this.schedulePersist()
     return message
+  }
+
+  /** Wait for all pending file/redis writes (use after post() before opening a new inbox). */
+  async flush(): Promise<void> {
+    await this.ready
+    await this.persistChain
+  }
+
+  private schedulePersist(): void {
+    this.persistChain = this.persistChain
+      .then(() => this.persist())
+      .catch((err) => {
+        console.error('[aio] inbox persist failed:', err)
+      })
   }
 
   poll(sessionId?: string, status?: string, unreadOnly = true): InboxMessage[] {
@@ -141,7 +156,7 @@ export class MessageInbox {
       return true
     })
     for (const m of matched) m.read = true
-    if (matched.length) this.persist().catch(() => {})
+    if (matched.length) this.schedulePersist()
     return matched
   }
 
@@ -171,7 +186,7 @@ export class MessageInbox {
 
   clear(): void {
     this.messages = []
-    this.persist().catch(() => {})
+    this.schedulePersist()
   }
 
   get backendName(): InboxBackend {

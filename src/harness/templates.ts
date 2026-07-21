@@ -20,11 +20,20 @@ export function projectAgentsMd(profile: DomainProfile): string {
 
 1. **Keyword routing**: any message with domain keywords (wiki, session, harness, dag, …) → call **\`aio_prompt({ message, execute: true })\`** — matches all MCP tools.
 2. Examples (KO / EN): \`wiki 검색 장바구니\` / \`search the wiki for cart\`, \`세션 띄워 API\` / \`spawn a session\`, \`TODO 스캔\` / \`scan for TODOs\`, \`wiki lint\` / \`lint the wiki\`, \`plan task\` / \`작업 계획\`
-3. Call MCP **\`bootstrap_domain\`** with the user's task (or **\`run_domain_loop\`** for full loop brief).
+3. Call MCP **\`domain_context\`** (or **\`bootstrap_domain\`**) with the user's task. Prefer \`format:"path"\` and read \`.aio/harness-context.json\`.
 4. Read returned wiki pages and **cite** \`[[page-title]]\` in your plan.
 5. Call **\`plan_task\`** for multi-step work; **\`execute_dag\`** when tasks are independent.
 6. After durable decisions, **\`file_back\`** into the wiki.
 7. Run **\`lint_wiki\`** when wiki structure may have changed.
+
+## Workflow cards
+
+| Flow | Steps |
+| ---- | ----- |
+| New project | init → bootstrap_harness → seed_stacks → run_doctor |
+| Implement | domain_context → plan_task → execute_dag → file_back → lint_wiki |
+| Design | brainstorm_design (same topic + merged answers) |
+| Ingest | ingest_pipeline (lint_mode:none) → lint_wiki |
 
 ## Natural-language (keyword) commands
 

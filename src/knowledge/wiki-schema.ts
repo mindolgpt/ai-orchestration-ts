@@ -2,7 +2,14 @@
  * Vault-level wiki schema — makes the LLM a disciplined wiki maintainer.
  * Seeded at vault/AGENTS.md on initialize.
  */
+import { createHash } from 'node:crypto'
+
 export const WIKI_SCHEMA_PATH = 'AGENTS.md'
+export const WIKI_SCHEMA_RESOURCE_URI = 'aio://wiki/schema'
+
+export function schemaContentHash(content: string): string {
+  return createHash('sha256').update(content).digest('hex').slice(0, 16)
+}
 
 export const DEFAULT_WIKI_SCHEMA = `# Wiki Schema (AGENTS.md)
 

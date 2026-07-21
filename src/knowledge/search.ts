@@ -134,8 +134,8 @@ export class SemanticSearch {
         snippet: h.document.content.slice(0, 200),
         tags: h.document.tags,
       }))
-    } catch {
-      // Cosine fallback over listed documents (offline / store errors)
+    } catch (err) {
+      console.warn('[aio] vector store search failed, using cosine fallback:', err)
       const docs = await this.store.listDocuments()
       const results: SearchResult[] = []
       for (const doc of docs) {
@@ -147,6 +147,7 @@ export class SemanticSearch {
           score,
           snippet: doc.content.slice(0, 200),
           tags: doc.tags,
+          degraded: true,
         })
       }
       results.sort((a, b) => b.score - a.score)

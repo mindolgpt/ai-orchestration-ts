@@ -5,6 +5,14 @@ import {
   TOOL_KEYWORDS,
   ToolKeywordDef,
 } from '@/harness/tool-keywords'
+import {
+  extractPathFromMessage,
+  extractRawIdFromMessage,
+  extractConfirmCode,
+  inferApprovalFromMessage,
+  looksLikeReingestRequest,
+  tryExplicitToolFromMessage,
+} from '@/harness/nl-params'
 
 /** @deprecated use tool id directly */
 export type PromptIntent =
@@ -38,30 +46,6 @@ const FILLER_RE =
 
 const SESSION_ID_RE = /sess_[a-z0-9]+/i
 const APPROVAL_ID_RE = /appr_[a-z0-9]+/i
-
-function extractPathFromMessage(message: string): string | undefined {
-  const win = message.match(/[A-Za-z]:\\[^\s"'`,]+/)
-  if (win) return win[0]
-  const vaultRaw = message.match(/(?:\.\/)?vault\/raw\/[^\s"'`,]+\.(md|txt|json|yaml|yml)/i)
-  if (vaultRaw) return vaultRaw[0]
-  const unix = message.match(/(?:\.?\/)?[\w./-]+\.(md|txt|json|yaml|yml|csv|xml|html)/i)
-  return unix?.[0]
-}
-
-function extractRawIdFromMessage(message: string): string | undefined {
-  const explicit = message.match(/\braw_id\s*[=:]\s*([a-z0-9]{6,12})\b/i)
-  if (explicit) return explicit[1]
-  const fromPath = message.match(/\braw\/([a-z0-9]{6,12})--/i)
-  if (fromPath) return fromPath[1]
-  const bare = message.match(/\b(?:raw\s*id|rawid)\s+([a-z0-9]{6,12})\b/i)
-  return bare?.[1]
-}
-
-function looksLikeReingestRequest(message: string): boolean {
-  return /(다시|재\s*ingest|re-?ingest|기존\s*raw|raw\s*파일\s*보고|from\s+raw|skip_raw)/i.test(
-    message
-  )
-}
 
 /**
  * Pull scale/phase from follow-ups.
@@ -195,7 +179,12 @@ function buildParams(
       break
     case 'bootstrap_domain':
     case 'run_domain_loop':
+    case 'domain_context':
       params.task = free
+      if (def.id === 'domain_context') {
+        params.format = /\b(path|경로|파일)\b/i.test(message) ? 'path' : 'path'
+        params.include_plan = /\b(plan|루프|loop|계획)\b/i.test(message)
+      }
       break
     case 'design_architecture':
       params.intent = free
@@ -224,6 +213,9 @@ function buildParams(
       break
     case 'execute_dag':
       params.resume = /\b(resume|재개|checkpoint|체크포인트)\b/i.test(message)
+      params.title = free.slice(0, 80) || 'Task'
+      params.description = free || message
+      params.plan_id = params.title
       break
     case 'ingest_raw':
     case 'ingest_source':
@@ -250,13 +242,13 @@ function buildParams(
       params.reason = free
       params.risk = /\b(critical|치명)\b/i.test(message) ? 'critical' : 'high'
       break
-    case 'resolve_approval':
-      params.approved = !/\b(거부|reject|deny|반려)\b/i.test(message)
-      {
-        const code = message.match(/\b(?:confirm[_ ]?code|코드)[:\s]*([a-f0-9]{16})\b/i)
-        if (code) params.confirm_code = code[1]
-      }
+    case 'resolve_approval': {
+      const inferred = inferApprovalFromMessage(message)
+      if (inferred !== undefined) params.approved = inferred
+      const code = extractConfirmCode(message)
+      if (code) params.confirm_code = code
       break
+    }
     case 'get_events':
       params.limit = 50
       break
@@ -300,6 +292,10 @@ export function routePrompt(message: string): PromptRoute {
     .sort((a, b) => b.score - a.score)
 
   if (!ranked.length) {
+    const explicit = tryExplicitToolFromMessage(text)
+    if (explicit) {
+      return routePromptToTool(text, explicit)
+    }
     return {
       tool: 'unknown',
       intent: 'unknown',
@@ -309,7 +305,7 @@ export function routePrompt(message: string): PromptRoute {
       message: text,
       extracted_stacks: stacks,
       agent_hint:
-        'No keyword match. Mention tool domain: wiki, session, dag, harness, branch, approval, recall… or call aio_prompt with explicit tool name.',
+        'No keyword match. Mention tool domain (wiki, session, dag, harness…) or include a tool id like query_wiki / domain_context.',
       alternatives: [],
     }
   }

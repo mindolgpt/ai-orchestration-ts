@@ -3,7 +3,25 @@
 Parallel AI orchestration MCP server (`aio`).  
 Spawn sessions, run Task DAGs, maintain a knowledge wiki (RAG), and Branch Hunt from Cursor, Claude Code, OpenCode, and other MCP clients.
 
-**Node.js >= 20** · current version **2.14.1**
+**Node.js >= 20** · current version **2.15.0**
+
+### 2.15 — agent UX · token optimization · reliability
+
+| Change                                 | Detail                                                                                                      |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `query_wiki`                           | Default `response_mode: snippets` (use `full` only when needed)                                             |
+| `domain_context`                       | Unified tool replacing separate bootstrap/loop calls; `format:path` for lowest tokens                       |
+| `ingest_pipeline`                      | `lint_mode: summary` by default (`none` \| `summary` \| `full`)                                             |
+| `AIO_MCP_TOOL_SET`                     | `core` \| `wiki` \| `full` — reduce MCP schema noise (default `full`)                                       |
+| MCP resources                          | `aio://wiki/schema`, `aio://wiki/stacks/index`                                                              |
+| `recall_knowledge` / `store_knowledge` | Deprecated — use `query_wiki` / `ingest_pipeline`                                                           |
+| Tool errors                            | Unified `{ ok, error, hint, fix }` on wiki ingest failures                                                  |
+| `aio_prompt`                           | **`execute` defaults to `true`**; dry-run adds `workflow_step`; ingest guard adds `fix` hint                |
+| Natural language                       | `execute_dag` auto-plans + runs; ingest resolves `README.md`; explicit tool ids route; approval KO/EN infer |
+| Inbox                                  | Persist race fixed (`flush()`); `spawn_session.timeout_ms` wired                                            |
+| Doctor                                 | Warns on faiss mock + local embedding native deps                                                           |
+
+See **Agent token guide** below.
 
 ### 2.14.1 — search index empty / `query_wiki` 0 hits
 
@@ -65,14 +83,14 @@ aio_prompt({
 
 Attach aio-mcp to a new repo with this sequence. In about five minutes you have MCP + vault + harness.
 
-| #   | Command                                                 | What it does                                                       |
-| --- | ------------------------------------------------------- | ------------------------------------------------------------------ |
-| 1   | `npx -y @mindol1004/aio-mcp init`                       | Create `vault/` + search index                                     |
-| 2   | `npx -y @mindol1004/aio-mcp bootstrap-harness`          | Auto-detect **one** tool (e.g. Cursor). All tools: `--targets all` |
-| 3   | Connect MCP + **Reload**                                | Set `AIO_PROJECT_ROOT: "${workspaceFolder}"` in `.cursor/mcp.json` |
-| 4   | `npx -y @mindol1004/aio-mcp doctor`                     | Diagnose install, paths, vault, harness                            |
-| 5   | `aio ingest --file README.md` or chat `ingest pipeline` | raw → wiki → lint in one pass                                      |
-| 6   | `aio aio-prompt "wiki lint" --execute`                  | Keyword-routing smoke test                                         |
+| #   | Command                                                 | What it does                                                                                              |
+| --- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 1   | `npx -y @mindol1004/aio-mcp init`                       | Create `vault/` + search index                                                                            |
+| 2   | `npx -y @mindol1004/aio-mcp bootstrap-harness`          | Auto-detect **one** tool (e.g. Cursor). All tools: `--targets all`                                        |
+| 3   | Connect MCP + **Reload**                                | Set `AIO_PROJECT_ROOT: "${workspaceFolder}"` in `.cursor/mcp.json` (optional: `AIO_MCP_TOOL_SET: "core"`) |
+| 4   | `npx -y @mindol1004/aio-mcp doctor`                     | Diagnose install, paths, vault, harness                                                                   |
+| 5   | `aio ingest --file README.md` or chat `ingest pipeline` | raw → wiki → lint in one pass                                                                             |
+| 6   | `aio aio-prompt "wiki lint" --execute`                  | Keyword-routing smoke test                                                                                |
 
 **One-shot health check:** `aio doctor` covers Node, `AIO_PROJECT_ROOT`, vault, wiki count, index, harness files, **active AI tool detection**, alerts for **unused tool files**, MCP config, git, rg, session runtime, and embeddings.
 
@@ -135,7 +153,8 @@ Only Cursor auto-expands `${workspaceFolder}`. Other tools need an explicit path
       "command": "npx",
       "args": ["-y", "@mindol1004/aio-mcp", "mcp-serve"],
       "env": {
-        "AIO_PROJECT_ROOT": "${workspaceFolder}"
+        "AIO_PROJECT_ROOT": "${workspaceFolder}",
+        "AIO_MCP_TOOL_SET": "core"
       }
     }
   }
@@ -242,7 +261,8 @@ This is for **Codex CLI / Codex IDE**, not the generic ChatGPT web chat.
       "command": ["npx", "-y", "@mindol1004/aio-mcp", "mcp-serve"],
       "enabled": true,
       "environment": {
-        "AIO_PROJECT_ROOT": "/absolute/path/to/your/project"
+        "AIO_PROJECT_ROOT": "/absolute/path/to/your/project",
+        "AIO_MCP_TOOL_SET": "core"
       }
     }
   }
@@ -344,19 +364,19 @@ vault/
   .index/         # local FAISS only (skipped when VECTOR_STORE is remote)
 ```
 
-| Layer         | Role                                              |
-| ------------- | ------------------------------------------------- |
-| **raw/**      | Sources. LLM read-only. Add only via `ingest_raw` |
-| **wiki/**     | Summaries, entities, concept pages                |
-| **AGENTS.md** | Schema: ingest / query / lint rules               |
+| Layer         | Role                                                                           |
+| ------------- | ------------------------------------------------------------------------------ |
+| **raw/**      | Sources. LLM read-only. Add via `ingest_pipeline` (or deprecated `ingest_raw`) |
+| **wiki/**     | Summaries, entities, concept pages                                             |
+| **AGENTS.md** | Schema: ingest / query / lint rules                                            |
 
 ### Three operations
 
-| Op         | Tools                                                                      | Behavior                                             |
-| ---------- | -------------------------------------------------------------------------- | ---------------------------------------------------- |
-| **Ingest** | `ingest_pipeline` / `ingest_raw` → `ingest_source` / `ingest_source_batch` | raw → wiki page(s) → lint. CLI: `aio ingest --file`  |
-| **Query**  | `query_wiki` → (optional) `file_back`                                      | Search + cite → fold good answers back into the wiki |
-| **Lint**   | `lint_wiki` / `aio wiki-lint --fail`                                       | Orphans, index coverage, schema/raw. Wire into CI    |
+| Op         | Tools                                                                                                                  | Behavior                                            |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| **Ingest** | **`ingest_pipeline`** (preferred). Legacy: `ingest_raw` → `ingest_source` / `ingest_source_batch` (deprecated aliases) | raw → wiki page(s) → lint. CLI: `aio ingest --file` |
+| **Query**  | **`query_wiki`** (preferred snippets). Deprecated: `recall_knowledge`                                                  | Search + cite → optional `file_back`                |
+| **Lint**   | `lint_wiki` / `aio wiki-lint --fail`                                                                                   | Orphans, index coverage, schema/raw. Wire into CI   |
 
 **Wiki MR:** `propose_wiki_change` → review → `apply_wiki_proposal` / `reject_wiki_proposal` (`wiki_diff`, `list_wiki_proposals`).
 
@@ -475,26 +495,55 @@ DATABASE_URL=postgres://user:pass@127.0.0.1:5432/aio
 | `aio mcp-serve` / `aio serve`                | stdio / SSE MCP                                                |
 | `aio recall` / `aio status` / `aio example`  | Search, paths, demo                                            |
 
-## MCP tools (51)
+## MCP tools (52)
 
-| Category        | Count | Tools                                                                                                                                                                                                                                                            |
-| --------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Harness**     | 11    | `aio_prompt`, `list_tool_keywords`, `bootstrap_harness`, `seed_stack_playbooks`, `design_architecture`, `brainstorm_design`, `bootstrap_domain`, `run_domain_loop`, `get_domain_profile`, `save_domain_profile`, `list_stack_playbooks`                          |
-| **Wiki**        | 14    | `get_wiki_schema`, `ingest_raw`, `ingest_source`, `ingest_source_batch`, `ingest_pipeline`, `update_wiki_page`, `query_wiki`, `file_back`, `lint_wiki`, `propose_wiki_change`, `list_wiki_proposals`, `apply_wiki_proposal`, `reject_wiki_proposal`, `wiki_diff` |
-| **Vault**       | 4     | `list_vaults`, `register_vault`, `scan_raw_inbox`, `get_dashboard_stats`                                                                                                                                                                                         |
-| **Session**     | 8     | `spawn_session`, `check_inbox`, `report_result`, `send_message`, `get_session`, `close_session`, `list_sessions`, `synthesize_results`                                                                                                                           |
-| **DAG**         | 2     | `plan_task`, `execute_dag`                                                                                                                                                                                                                                       |
-| **Ops**         | 7     | `request_approval`, `resolve_approval`, `list_approvals`, `get_events`, `list_worktrees`, `remove_worktree`, `run_doctor`                                                                                                                                        |
-| **Branch Hunt** | 3     | `scan_issues`, `collect_results`, `get_branch_status`                                                                                                                                                                                                            |
-| **Knowledge**   | 2     | `store_knowledge`, `recall_knowledge`                                                                                                                                                                                                                            |
+| Category        | Count | Tools                                                                                                                                                                                                                                                               |
+| --------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Harness**     | 12    | `aio_prompt`, `list_tool_keywords`, `bootstrap_harness`, `seed_stack_playbooks`, `design_architecture`, `brainstorm_design`, **`domain_context`**, `bootstrap_domain`†, `run_domain_loop`†, `get_domain_profile`, `save_domain_profile`, `list_stack_playbooks`     |
+| **Wiki**        | 14    | `get_wiki_schema`, `ingest_pipeline`, `ingest_raw`†, `ingest_source`†, `ingest_source_batch`†, `update_wiki_page`, `query_wiki`, `file_back`, `lint_wiki`, `propose_wiki_change`, `list_wiki_proposals`, `apply_wiki_proposal`, `reject_wiki_proposal`, `wiki_diff` |
+| **Vault**       | 4     | `list_vaults`, `register_vault`, `scan_raw_inbox`, `get_dashboard_stats`                                                                                                                                                                                            |
+| **Session**     | 8     | `spawn_session`, `check_inbox`, `report_result`, `send_message`, `get_session`, `close_session`, `list_sessions`, `synthesize_results`                                                                                                                              |
+| **DAG**         | 2     | `plan_task`, `execute_dag`                                                                                                                                                                                                                                          |
+| **Ops**         | 7     | `request_approval`, `resolve_approval`, `list_approvals`, `get_events`, `list_worktrees`, `remove_worktree`, `run_doctor`                                                                                                                                           |
+| **Branch Hunt** | 3     | `scan_issues`, `collect_results`, `get_branch_status`                                                                                                                                                                                                               |
+| **Knowledge**   | 2     | `recall_knowledge`†, `store_knowledge`†                                                                                                                                                                                                                             |
+
+† **Deprecated** — responses include `deprecated: true` and `use_instead`. Prefer the replacements in [Agent token guide](#agent-token-guide).
+
+**Tier exposure:** `AIO_MCP_TOOL_SET=core` registers 16 core tools; `wiki` adds wiki/MR/vault extras; `full` (default) registers all 52.
+
+### MCP resources
+
+Prefer reading these over repeated tool calls (lower tokens):
+
+| URI                       | Content                       |
+| ------------------------- | ----------------------------- |
+| `aio://wiki/schema`       | Full `vault/AGENTS.md`        |
+| `aio://wiki/stacks/index` | Stack playbook ID list (JSON) |
+
+### Deprecated tool map
+
+| Legacy                                               | Use instead                                                 |
+| ---------------------------------------------------- | ----------------------------------------------------------- |
+| `recall_knowledge`                                   | `query_wiki` (default snippets)                             |
+| `store_knowledge`                                    | `ingest_pipeline` or `file_back`                            |
+| `ingest_raw`, `ingest_source`, `ingest_source_batch` | `ingest_pipeline`                                           |
+| `bootstrap_domain`, `run_domain_loop`                | `domain_context` (`include_plan: true` for full loop brief) |
 
 ### Keyword routing (`aio_prompt`)
 
-**49** tools are keyword-routable (everything except `aio_prompt` / `list_tool_keywords`). Matching uses scored Korean **and** English keywords/patterns (articles like “the/a/my” are allowed). Unrelated text returns `unknown` — it does not fall through to brainstorm.
+**50** tools are keyword-routable (everything except `aio_prompt` / `list_tool_keywords`). Matching uses scored Korean **and** English keywords/patterns (articles like “the/a/my” are allowed). Unrelated text returns `unknown` — it does not fall through to brainstorm.
+
+Dry-run responses (`execute: false`) include **`workflow_step`**. By default **`execute` is `true`** — natural-language requests run immediately.
+
+`execute_dag` via `aio_prompt` **auto-plans** when `tasks[]` is omitted (creates default criteria tasks and runs the DAG). Ingest accepts filenames in text (`ingest README.md`). Messages mentioning a tool id (e.g. `query_wiki`) route even without keyword hits.
+
+Wiki / ingest failures from MCP tools return a unified shape: `{ "ok": false, "error": "...", "hint": "...", "fix": "..." }`.
 
 | Example (KO / EN)                  | Tool                  |
 | ---------------------------------- | --------------------- |
 | wiki 검색 / search the wiki        | `query_wiki`          |
+| 도메인 컨텍스트 / domain context   | `domain_context`      |
 | wiki lint / lint the wiki          | `lint_wiki`           |
 | 하네스 / bootstrap harness         | `bootstrap_harness`   |
 | 아키텍처 / design the architecture | `design_architecture` |
@@ -518,17 +567,17 @@ Full registry: `list_tool_keywords`.
 
 Wiki knowledge → project harness in one shot:
 
-| Artifact                                 | Target                                     |
-| ---------------------------------------- | ------------------------------------------ |
-| `AGENTS.md`                              | Shared (all agents)                        |
-| `.cursor/rules/aio-domain-harness.mdc`   | Cursor                                     |
-| `.cursor/hooks.json` + `hooks/aio-*.mjs` | Cursor (inject wiki context)               |
-| `.cursor/mcp.json`                       | Cursor MCP (merge)                         |
-| `CLAUDE.md` + `.mcp.json`                | Claude Code                                |
-| `opencode.json`                          | OpenCode                                   |
-| `.codex/mcp.toml`                        | Codex CLI (harness output)                 |
-| `.aio/domain-profile.yaml`               | Domain profile                             |
-| `.aio/harness-context.json`              | `bootstrap_domain` cache (hooks read this) |
+| Artifact                                 | Target                                   |
+| ---------------------------------------- | ---------------------------------------- |
+| `AGENTS.md`                              | Shared (all agents)                      |
+| `.cursor/rules/aio-domain-harness.mdc`   | Cursor                                   |
+| `.cursor/hooks.json` + `hooks/aio-*.mjs` | Cursor (inject wiki context)             |
+| `.cursor/mcp.json`                       | Cursor MCP (merge)                       |
+| `CLAUDE.md` + `.mcp.json`                | Claude Code                              |
+| `opencode.json`                          | OpenCode                                 |
+| `.codex/mcp.toml`                        | Codex CLI (harness output)               |
+| `.aio/domain-profile.yaml`               | Domain profile                           |
+| `.aio/harness-context.json`              | `domain_context` cache (hooks read this) |
 
 ```bash
 aio init
@@ -536,7 +585,7 @@ aio seed-stacks
 aio bootstrap-harness --domain ecommerce --backend spring-boot --frontend react
 # Restart MCP, then in chat:
 #   "bootstrap harness" / "design architecture"  (aio_prompt)
-#   run_domain_loop({ task: "implement login API" })
+#   domain_context({ task: "implement login API", format: "path" })
 ```
 
 ### Session notes
@@ -583,14 +632,16 @@ aio bootstrap-harness --domain ecommerce --backend spring-boot --frontend react
 
 ### Orchestration
 
-| Variable                                    | Description                    |
-| ------------------------------------------- | ------------------------------ |
-| `AIO_SESSION_RUNTIME`                       | Session runtime                |
-| `AIO_SESSION_COMMAND` / `AIO_SESSION_ARGS`  | Custom spawn                   |
-| `AIO_INBOX_BACKEND` / `AIO_INBOX_REDIS_URL` | Inbox backend                  |
-| `AIO_VERIFY_STEPS`                          | Ralph verify ladder            |
-| `AIO_EVENTS=0`                              | Disable event log              |
-| `AIO_HARNESS_TARGET`                        | Force harness target detection |
+| Variable                                    | Description                                         |
+| ------------------------------------------- | --------------------------------------------------- |
+| `AIO_SESSION_RUNTIME`                       | Session runtime                                     |
+| `AIO_SESSION_COMMAND` / `AIO_SESSION_ARGS`  | Custom spawn                                        |
+| `AIO_INBOX_BACKEND` / `AIO_INBOX_REDIS_URL` | Inbox backend                                       |
+| `AIO_VERIFY_STEPS`                          | Ralph verify ladder                                 |
+| `AIO_EVENTS=0`                              | Disable event log                                   |
+| `AIO_HARNESS_TARGET`                        | Force harness target detection                      |
+| `AIO_MCP_TOOL_SET`                          | `core` \| `wiki` \| `full` — tool registration tier |
+| `AIO_JSON_PRETTY`                           | `1` = pretty JSON tool responses (debug)            |
 
 ### Security / hardening
 
@@ -608,6 +659,37 @@ Defaults are secure. `AIO_ALLOW_*=1` flags are intentional escape hatches.
 | `AIO_ALLOW_UNTRUSTED_EMBEDDING_MODEL`                  | Bypass local embedding model allowlist              |
 
 Auth for SSE/dashboard: `Authorization: Bearer …`, `X-Aio-Token`, or `?token=`.
+
+## Agent token guide
+
+Reduce MCP + tool response tokens for AI agents:
+
+| Situation         | Prefer                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------- |
+| Wiki search       | `query_wiki` with default snippets (not `recall_knowledge`)                                       |
+| Domain context    | `domain_context({ task, format: "path" })` → read `.aio/harness-context.json`                     |
+| Wiki schema       | MCP resource `aio://wiki/schema` or `get_wiki_schema({ mode: "excerpt" })` once per session       |
+| Ingest            | `ingest_pipeline({ lint_mode: "summary" })` or `lint_mode: "none"` + separate `lint_wiki`         |
+| Brainstorm        | `response_format: "structured"`, `write_docs: false` until brief                                  |
+| Natural commands  | `aio_prompt({ message })` — **`execute` defaults to `true`**; set `execute:false` only to dry-run |
+| Tool list size    | `AIO_MCP_TOOL_SET=core` in MCP env (16 core tools)                                                |
+| Keywords registry | Do not call `list_tool_keywords` repeatedly — use AGENTS.md                                       |
+| JSON debug        | `AIO_JSON_PRETTY=1` only when debugging                                                           |
+
+### Workflow cards
+
+```
+[New project]     init → bootstrap_harness → seed_stacks → run_doctor
+[Implement]       domain_context → plan_task → execute_dag → file_back → lint_wiki
+[Design]          brainstorm_design (fixed topic + merged answers)
+[Ingest docs]     ingest_pipeline(lint_mode:none) → lint_wiki
+[Parallel research] spawn_session × N → check_inbox → synthesize_results
+```
+
+| Env                | Values                             | Default |
+| ------------------ | ---------------------------------- | ------- |
+| `AIO_MCP_TOOL_SET` | `core` \| `wiki` \| `full`         | `full`  |
+| `AIO_JSON_PRETTY`  | `1` for pretty JSON tool responses | compact |
 
 ## Architecture
 

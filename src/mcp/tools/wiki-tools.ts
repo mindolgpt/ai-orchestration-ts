@@ -23,10 +23,9 @@ import {
   wikiDiff,
 } from '@/knowledge/wiki-mr'
 import { resolveProjectRoot } from '@/knowledge/paths'
-
-function jsonResult(data: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
-}
+import { jsonResult } from '@/mcp/json-result'
+import { registerMcpTool } from '@/mcp/register-tool'
+import { jsonErrorResult } from '@/mcp/tool-error'
 
 const conceptSchema = z.object({
   title: z.string(),
@@ -42,20 +41,27 @@ export function registerWikiTools(
   vault: ObsidianVault,
   search: SemanticSearch
 ): void {
-  server.registerTool(
+  registerMcpTool(
+    server,
     'get_wiki_schema',
     {
       description:
-        'Read the vault wiki schema (AGENTS.md). Call this first when maintaining the wiki so you act as a disciplined wiki maintainer, not a generic chatbot.',
+        'Wiki schema excerpt (default). Use mode:full or MCP resource aio://wiki/schema for full AGENTS.md.',
+      inputSchema: z.object({
+        mode: z.enum(['excerpt', 'full']).optional(),
+        max_chars: z.number().optional(),
+      }),
     },
-    async () => jsonResult(await getWikiSchema(vault))
+    async (args) =>
+      jsonResult(await getWikiSchema(vault, { mode: args.mode, max_chars: args.max_chars }))
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'ingest_raw',
     {
       description:
-        'Store an immutable original document under vault/raw/. Never modify raw later. Prefer this before ingest_source for durable knowledge.',
+        'Deprecated — use ingest_pipeline. Stores an immutable original under vault/raw/.',
       inputSchema: z.object({
         title: z.string(),
         content: z.string().optional(),
@@ -66,24 +72,28 @@ export function registerWikiTools(
     },
     async (args) => {
       try {
-        return jsonResult(
-          await ingestRawFromOpts(vault, {
-            ...args,
-            content: args.content || '',
-            project_root: resolveProjectRoot(),
-          })
-        )
+        const data = await ingestRawFromOpts(vault, {
+          ...args,
+          content: args.content || '',
+          project_root: resolveProjectRoot(),
+        })
+        return jsonResult({ ...data, deprecated: true, use_instead: 'ingest_pipeline' })
       } catch (err) {
-        return jsonResult({ error: err instanceof Error ? err.message : String(err) })
+        const msg = err instanceof Error ? err.message : String(err)
+        return jsonErrorResult(msg, {
+          hint: 'ingest_raw requires non-empty content or file_path',
+          fix: 'ingest_pipeline({ file_path: "docs/x.md", concepts: [...] })',
+        })
       }
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'ingest_source',
     {
       description:
-        'Create/update ONE wiki concept page. Workflow: (1) get_wiki_schema (2) ingest_raw for originals (3) ingest_source per concept (4) update_wiki_page for related entities (5) confirm index.md + log.md. Do not put multiple concepts in one call.',
+        'Deprecated — use ingest_pipeline. Create/update ONE wiki concept page from raw/source.',
       inputSchema: z.object({
         title: z.string(),
         content: z.string(),
@@ -94,14 +104,18 @@ export function registerWikiTools(
         subdir: z.string().optional(),
       }),
     },
-    async (args) => jsonResult(await ingestSource(vault, search, args))
+    async (args) => {
+      const data = await ingestSource(vault, search, args)
+      return jsonResult({ ...data, deprecated: true, use_instead: 'ingest_pipeline' })
+    }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'ingest_source_batch',
     {
       description:
-        'Create/update multiple wiki concept pages from one raw source. One entry in concepts[] = one page. Use subdir for taxonomy (domain, engineering, architecture, stacks).',
+        'Deprecated — use ingest_pipeline. Batch wiki concept pages from one raw source.',
       inputSchema: z.object({
         concepts: z.array(conceptSchema).min(1),
         raw_id: z.string().optional(),
@@ -109,10 +123,14 @@ export function registerWikiTools(
         default_subdir: z.string().optional(),
       }),
     },
-    async (args) => jsonResult(await ingestSourceBatch(vault, search, args))
+    async (args) => {
+      const data = await ingestSourceBatch(vault, search, args)
+      return jsonResult({ ...data, deprecated: true, use_instead: 'ingest_pipeline' })
+    }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'ingest_pipeline',
     {
       description:
@@ -129,6 +147,7 @@ export function registerWikiTools(
         skip_raw: z.boolean().optional(),
         concepts: z.array(conceptSchema).optional(),
         run_lint: z.boolean().optional(),
+        lint_mode: z.enum(['none', 'summary', 'full']).optional(),
         lint_deep: z.boolean().optional(),
       }),
     },
@@ -138,16 +157,23 @@ export function registerWikiTools(
           await ingestPipeline(vault, search, {
             ...args,
             project_root: resolveProjectRoot(),
-            run_lint: args.run_lint !== false,
+            lint_mode:
+              args.lint_mode ??
+              (args.run_lint === false ? 'none' : args.run_lint === true ? 'full' : 'summary'),
           })
         )
       } catch (err) {
-        return jsonResult({ error: err instanceof Error ? err.message : String(err) })
+        const msg = err instanceof Error ? err.message : String(err)
+        return jsonErrorResult(msg, {
+          hint: 'ingest_pipeline needs file_path, raw_id, or substantial content',
+          fix: 'ingest_pipeline({ file_path: "docs/x.md", concepts: [{ title, content }] })',
+        })
       }
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'update_wiki_page',
     {
       description:
@@ -164,25 +190,37 @@ export function registerWikiTools(
       try {
         return jsonResult(await updateWikiPage(vault, search, args))
       } catch (err) {
-        return jsonResult({ error: err instanceof Error ? err.message : String(err) })
+        const msg = err instanceof Error ? err.message : String(err)
+        return jsonErrorResult(msg, {
+          hint: 'update_wiki_page only updates existing wiki pages (not raw/)',
+          fix: 'ingest_pipeline or ingest_source to create pages first',
+        })
       }
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'query_wiki',
     {
       description:
-        'Search wiki pages and return full content + citations. Synthesize answers with citations. If the answer is durable, follow up with file_back.',
+        'Search wiki pages (snippets by default). Use response_mode:full for full page bodies. Prefer over recall_knowledge.',
       inputSchema: z.object({
         query: z.string(),
         top_k: z.number().optional(),
+        response_mode: z.enum(['snippets', 'full']).optional(),
       }),
     },
-    async (args) => jsonResult(await queryWiki(vault, search, args.query, args.top_k ?? 5))
+    async (args) =>
+      jsonResult(
+        await queryWiki(vault, search, args.query, args.top_k ?? 5, {
+          response_mode: args.response_mode,
+        })
+      )
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'file_back',
     {
       description:
@@ -199,7 +237,8 @@ export function registerWikiTools(
     async (args) => jsonResult(await fileBack(vault, search, args))
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'lint_wiki',
     {
       description:
@@ -213,7 +252,8 @@ export function registerWikiTools(
       jsonResult(await lintWiki(vault, { deep: args.deep === true, staleDays: args.stale_days }))
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'propose_wiki_change',
     {
       description:
@@ -228,7 +268,8 @@ export function registerWikiTools(
     async (args) => jsonResult(await proposeWikiChange(vault, args, resolveProjectRoot()))
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'list_wiki_proposals',
     {
       description: 'List wiki change proposals (pending/applied/rejected).',
@@ -239,7 +280,8 @@ export function registerWikiTools(
     async (args) => jsonResult(await listWikiProposals(resolveProjectRoot(), args.status))
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'apply_wiki_proposal',
     {
       description: 'Apply a pending wiki proposal to the vault (human-approved merge).',
@@ -251,7 +293,8 @@ export function registerWikiTools(
     async (args) => jsonResult(await applyWikiProposal(vault, search, args, resolveProjectRoot()))
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'reject_wiki_proposal',
     {
       description: 'Reject a pending wiki proposal without changing wiki pages.',
@@ -264,7 +307,8 @@ export function registerWikiTools(
     async (args) => jsonResult(await rejectWikiProposal(args.id, args, resolveProjectRoot()))
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'wiki_diff',
     {
       description: 'Preview diff lines for a proposed wiki page change before creating a proposal.',

@@ -6,6 +6,8 @@ import {
   sanitizeWikiSubdir,
   slugifyTitle,
   WIKI_SCHEMA_PATH,
+  schemaContentHash,
+  WIKI_SCHEMA_RESOURCE_URI,
 } from '@/knowledge/wiki-schema'
 import { toPosixPath } from '@/knowledge/paths'
 
@@ -56,6 +58,24 @@ export interface LintResult {
   }
 }
 
+export function summarizeLintResult(lint: LintResult): {
+  ok: boolean
+  issue_count: number
+  orphan_count: number
+  total_wiki_pages: number
+  index_percent: number
+  issues: string[]
+} {
+  return {
+    ok: lint.ok,
+    issue_count: lint.issues.length,
+    orphan_count: lint.orphan_count,
+    total_wiki_pages: lint.total_wiki_pages,
+    index_percent: lint.index_percent,
+    issues: lint.issues.slice(0, 10),
+  }
+}
+
 function oneLineSummary(text: string, fallback: string): string {
   const cleaned = text
     .replace(/[#>*`[\]]/g, ' ')
@@ -65,16 +85,40 @@ function oneLineSummary(text: string, fallback: string): string {
 }
 
 export async function getWikiSchema(
-  vault: ObsidianVault
-): Promise<{ path: string; content: string }> {
+  vault: ObsidianVault,
+  opts?: { mode?: 'full' | 'excerpt'; max_chars?: number }
+): Promise<{
+  path: string
+  content?: string
+  excerpt?: string
+  content_hash?: string
+  resource_uri?: string
+}> {
   await vault.initialize()
-  return { path: WIKI_SCHEMA_PATH, content: await vault.readSchema() }
+  const content = await vault.readSchema()
+  const mode = opts?.mode ?? 'excerpt'
+  const max = opts?.max_chars ?? 800
+  if (mode === 'full') {
+    return { path: WIKI_SCHEMA_PATH, content }
+  }
+  const excerpt = content.length > max ? content.slice(0, max) + '\n…' : content
+  return {
+    path: WIKI_SCHEMA_PATH,
+    excerpt,
+    content_hash: schemaContentHash(content),
+    resource_uri: WIKI_SCHEMA_RESOURCE_URI,
+  }
 }
 
 export async function ingestRaw(
   vault: ObsidianVault,
   opts: { title: string; content: string; source_uri?: string; id?: string }
 ) {
+  if (!opts.content?.trim()) {
+    throw new Error(
+      'ingest_raw requires non-empty content (use ingest_pipeline with file_path for files)'
+    )
+  }
   await vault.initialize()
   const result = await vault.writeRawOnce(opts)
   await vault.appendLog(
@@ -225,23 +269,29 @@ export async function queryWiki(
   vault: ObsidianVault,
   search: SemanticSearch,
   query: string,
-  topK = 5
+  topK = 5,
+  opts?: { response_mode?: 'snippets' | 'full' }
 ) {
   await vault.initialize()
   await search.load()
   const results = await search.search(query, topK)
+  const mode = opts?.response_mode ?? 'snippets'
+  const degraded = results.some((r) => r.degraded)
 
   const pages = await Promise.all(
     results.map(async (r) => {
-      const fullContent = await vault.readNote(r.path)
-      return {
+      const base = {
         path: r.path,
         title: r.title,
         score: r.score,
         snippet: r.snippet,
         tags: r.tags,
-        full_content: fullContent || r.snippet,
       }
+      if (mode === 'full') {
+        const fullContent = await vault.readNote(r.path)
+        return { ...base, full_content: fullContent || r.snippet }
+      }
+      return base
     })
   )
 
@@ -253,11 +303,17 @@ export async function queryWiki(
 
   return {
     query,
+    response_mode: mode,
     page_count: pages.length,
     citations,
     pages,
+    ...(degraded
+      ? { degraded: true, index_warning: 'Search used fallback mode; results may be incomplete' }
+      : {}),
     reminder:
-      'Synthesize an answer with citations. If durable, call file_back to write it into the wiki.',
+      mode === 'snippets'
+        ? 'Use response_mode:full or read wiki paths for full page bodies. Synthesize with citations; use file_back for durable answers.'
+        : 'Synthesize an answer with citations. If durable, call file_back to write it into the wiki.',
   }
 }
 

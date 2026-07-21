@@ -8,7 +8,7 @@ import {
   cacheContextPack,
   contextPackToMarkdown,
 } from '@/harness/context-pack'
-import { runDomainLoop } from '@/harness/loop'
+import { runDomainLoop, domainContext } from '@/harness/loop'
 import { loadDomainProfile, saveDomainProfile } from '@/harness/profile'
 import { getEventLog } from '@/observability/events'
 import { routePrompt, routePromptToTool, listToolKeywords } from '@/harness/prompt-router'
@@ -18,9 +18,12 @@ import { brainstormDesign } from '@/harness/brainstorm'
 import { seedStackPlaybooks, seedPatternPlaybooks } from '@/harness/seed-stacks'
 import { ALL_STACK_IDS } from '@/harness/stack-playbooks'
 import { executePromptRoute, PromptExecutorDeps } from '@/harness/prompt-executor'
+import { workflowStepForTool } from '@/harness/workflow-steps'
+import { jsonResult } from '@/mcp/json-result'
+import { registerMcpTool } from '@/mcp/register-tool'
 
 function json(data: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+  return jsonResult(data)
 }
 
 export type HarnessToolsContext = PromptExecutorDeps
@@ -28,11 +31,12 @@ export type HarnessToolsContext = PromptExecutorDeps
 export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext): void {
   const { vault, search, projectRoot: root } = ctx
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'aio_prompt',
     {
       description:
-        "Keyword-based natural language router for ALL aio-mcp tools (Korean + English). Examples: 'wiki 검색 장바구니' / 'search the wiki for cart', '세션 띄워 API' / 'spawn a session', 'TODO 스캔' / 'scan for TODOs', 'wiki lint' / 'lint the wiki'. Set execute:true to run the matched tool.",
+        "Keyword-based natural language router for ALL aio-mcp tools (Korean + English). Examples: 'wiki 검색 장바구니' / 'search the wiki for cart', '세션 띄워 API' / 'spawn a session', 'DAG 실행' / 'run the dag', 'ingest README.md'. execute defaults to true.",
       inputSchema: z.object({
         message: z.string(),
         execute: z.boolean().optional(),
@@ -95,7 +99,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
       const exec = await executePromptRoute(ctx, {
         route,
         message: args.message,
-        execute: args.execute,
+        execute: args.execute !== false,
         params: mergedParams,
         harness: {
           targets: args.targets,
@@ -104,7 +108,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
         },
       })
 
-      if (!args.execute) {
+      if (args.execute === false) {
         return json({
           routed: true,
           tool: route.tool,
@@ -116,7 +120,8 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
           extracted_stacks: route.extracted_stacks,
           alternatives: route.alternatives,
           agent_hint: route.agent_hint,
-          hint: 'Set execute:true to run automatically.',
+          workflow_step: workflowStepForTool(route.tool),
+          hint: 'Dry-run only. Omit execute or set execute:true to run (default: true).',
         })
       }
 
@@ -134,7 +139,8 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'list_tool_keywords',
     {
       description: 'List all MCP tools and their keyword triggers for aio_prompt routing',
@@ -142,10 +148,18 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
         category: z
           .enum(['harness', 'wiki', 'session', 'dag', 'ops', 'branch', 'knowledge'])
           .optional(),
+        mode: z.enum(['summary', 'full']).optional(),
       }),
     },
     async (args) => {
       const tools = listToolKeywords().filter((t) => !args.category || t.category === args.category)
+      const mode = args.mode ?? 'summary'
+      if (mode === 'summary') {
+        return json({
+          count: tools.length,
+          tools: tools.map((t) => ({ id: t.id, category: t.category })),
+        })
+      }
       return json({
         count: tools.length,
         tools: tools.map((t) => ({
@@ -158,7 +172,8 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'bootstrap_harness',
     {
       description:
@@ -202,7 +217,8 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'seed_stack_playbooks',
     {
       description: `Seed vault/wiki/stacks/* playbooks (${ALL_STACK_IDS.length} stacks). Keywords: 스택 플레이북 / seed stack playbooks.`,
@@ -219,7 +235,8 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'design_architecture',
     {
       description:
@@ -266,7 +283,8 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'brainstorm_design',
     {
       description:
@@ -298,6 +316,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
           .optional(),
         skip_questions: z.boolean().optional(),
         write_docs: z.boolean().optional(),
+        response_format: z.enum(['structured', 'markdown']).optional(),
         answers: z
           .object({
             scale: z.enum(['mvp', 'growth', 'enterprise']).optional(),
@@ -318,6 +337,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
         answers: args.answers,
         skip_questions: args.skip_questions,
         write_docs: args.write_docs,
+        response_format: args.response_format,
       })
       await getEventLog(root).emit('harness.brainstorm', {
         topic: args.topic.slice(0, 80),
@@ -328,11 +348,39 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
+    'domain_context',
+    {
+      description:
+        'Unified wiki domain context (preferred over bootstrap_domain / run_domain_loop). include_plan:true for full loop brief. format:path for lowest tokens (.aio/harness-context.json).',
+      inputSchema: z.object({
+        task: z.string(),
+        top_k: z.number().optional(),
+        extra_queries: z.array(z.string()).optional(),
+        include_plan: z.boolean().optional(),
+        format: z.enum(['json', 'markdown', 'path']).optional(),
+      }),
+    },
+    async (args) => {
+      const result = await domainContext(vault, search, args.task, {
+        top_k: args.top_k,
+        extra_queries: args.extra_queries,
+        include_plan: args.include_plan,
+        format: args.format ?? 'path',
+        project_root: root,
+      })
+      await getEventLog(root).emit('harness.domain_context', { task: args.task.slice(0, 80) })
+      return json(result)
+    }
+  )
+
+  registerMcpTool(
+    server,
     'bootstrap_domain',
     {
       description:
-        'Build domain context pack from wiki. Keywords: wiki 컨텍스트 / domain context / bootstrap domain.',
+        'Build domain context pack from wiki. Prefer domain_context. Keywords: wiki 컨텍스트 / domain context / bootstrap domain.',
       inputSchema: z.object({
         task: z.string(),
         top_k: z.number().optional(),
@@ -355,19 +403,22 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
         args.format === 'markdown'
           ? { markdown: contextPackToMarkdown(pack), cache_path: cachePath }
           : { ...pack, cache_path: cachePath }
-      return json(body)
+      return json({ ...body, deprecated: true, use_instead: 'domain_context' })
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'run_domain_loop',
     {
-      description: 'Full domain loop brief. Keywords: 도메인 루프 / domain loop / run domain loop.',
+      description:
+        'Full domain loop brief. Prefer domain_context with include_plan:true. format:path (default) returns cache path only.',
       inputSchema: z.object({
         task: z.string(),
         top_k: z.number().optional(),
         extra_queries: z.array(z.string()).optional(),
         include_plan: z.boolean().optional(),
+        format: z.enum(['json', 'markdown', 'path']).optional(),
       }),
     },
     async (args) => {
@@ -375,22 +426,26 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
         top_k: args.top_k,
         extra_queries: args.extra_queries,
         include_plan: args.include_plan,
+        format: args.format ?? 'path',
         project_root: root,
       })
       await getEventLog(root).emit('harness.loop', { task: args.task.slice(0, 80) })
-      return json(result)
+      return json({ ...result, deprecated: true, use_instead: 'domain_context' })
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'get_domain_profile',
     {
       description: 'Read .aio/domain-profile.yaml. Keywords: 도메인 프로필 / domain profile.',
+      inputSchema: z.object({}),
     },
     async () => json(await loadDomainProfile(vault, root))
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'save_domain_profile',
     {
       description: 'Save domain profile. Keywords: 프로필 저장 / save domain profile.',
@@ -425,10 +480,12 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'list_stack_playbooks',
     {
       description: 'List stack playbook ids. Keywords: 스택 목록 / list stack playbooks.',
+      inputSchema: z.object({}),
     },
     async () =>
       json({

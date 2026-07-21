@@ -58,7 +58,7 @@ describe('wiki-ops 3-layer flow', () => {
   })
 
   test('getWikiSchema returns seeded schema', async () => {
-    const schema = await getWikiSchema(vault)
+    const schema = await getWikiSchema(vault, { mode: 'full' })
     expect(schema.path).toBe('AGENTS.md')
     expect(schema.content).toContain('disciplined wiki maintainer')
   })
@@ -190,8 +190,20 @@ describe('registerWikiTools', () => {
     const vault = new ObsidianVault(dir)
     const search = new SemanticSearch(createMockEmbedder(), join(dir, '.index'))
     registerWikiTools(server, vault, search)
-    const result = await getCallback('get_wiki_schema')({})
+    const result = await getCallback('get_wiki_schema')({ mode: 'full' })
     const parsed = JSON.parse(result.content[0].text)
     expect(parsed.content).toContain('3 Layers')
+  })
+
+  test('get_wiki_schema excerpt mode', async () => {
+    const { server, getCallback } = createMockServer()
+    const dir = mkdtempSync(join(tmpdir(), 'aio-tools2b-'))
+    const vault = new ObsidianVault(dir)
+    const search = new SemanticSearch(createMockEmbedder(), join(dir, '.index'))
+    registerWikiTools(server, vault, search)
+    const result = await getCallback('get_wiki_schema')({})
+    const parsed = JSON.parse(result.content[0].text)
+    expect(parsed.excerpt).toContain('3 Layers')
+    expect(parsed.content_hash).toBeTruthy()
   })
 })

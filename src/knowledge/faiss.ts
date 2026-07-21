@@ -97,6 +97,12 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
 }
 
 let cachedCtor: FaissIndexFlatIPCtor | null | undefined
+let usingMock = false
+
+/** True when faiss-node failed to load and in-memory mock is active. */
+export function isFaissMockMode(): boolean {
+  return usingMock
+}
 
 export async function loadFaissIndexFlatIP(): Promise<FaissIndexFlatIPCtor> {
   if (cachedCtor) return cachedCtor
@@ -108,10 +114,12 @@ export async function loadFaissIndexFlatIP(): Promise<FaissIndexFlatIPCtor> {
       throw new Error('faiss-node IndexFlatIP export not found (ESM interop)')
     }
     cachedCtor = IndexFlatIP
+    usingMock = false
     return IndexFlatIP
   } catch (err) {
     console.error('[aio] faiss-node unavailable, using in-memory mock index:', err)
     cachedCtor = createMockIndexFlatIP()
+    usingMock = true
     return cachedCtor
   }
 }
@@ -119,4 +127,5 @@ export async function loadFaissIndexFlatIP(): Promise<FaissIndexFlatIPCtor> {
 /** Test helper */
 export function resetFaissCache(): void {
   cachedCtor = undefined
+  usingMock = false
 }

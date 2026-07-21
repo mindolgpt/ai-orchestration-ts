@@ -70,7 +70,8 @@ export interface BrainstormResult {
     alternatives: string[]
     risks: string[]
   }
-  agent_instructions: string
-  markdown: string
+  agent_instructions?: string
+  markdown?: string
+  workflow_hint?: string
   docs_written?: string[]
 }

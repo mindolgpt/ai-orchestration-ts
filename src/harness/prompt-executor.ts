@@ -13,7 +13,7 @@ import { ApprovalGate } from '@/orchestrator/approval'
 import { bootstrapHarness } from '@/harness/bootstrap'
 import { designArchitecture } from '@/harness/architecture'
 import { buildDomainContextPack, cacheContextPack } from '@/harness/context-pack'
-import { runDomainLoop } from '@/harness/loop'
+import { runDomainLoop, domainContext } from '@/harness/loop'
 import { loadDomainProfile, saveDomainProfile } from '@/harness/profile'
 import { brainstormDesign } from '@/harness/brainstorm'
 import { seedStackPlaybooks, seedPatternPlaybooks } from '@/harness/seed-stacks'
@@ -29,7 +29,6 @@ import {
   updateWikiPage,
 } from '@/knowledge/wiki-ops'
 import {
-  hasIngestDocumentPayload,
   hasSubstantialIngestContent,
   ingestPipeline,
   ingestRawFromOpts,
@@ -52,6 +51,15 @@ import { createInbox } from '@/mcp/inbox'
 import { runDoctor } from '@/doctor/check'
 import { createEmbedder } from '@/knowledge/embedder'
 import { resolveIndexDir, resolveProjectRoot, resolveVaultRoot } from '@/knowledge/paths'
+import { workflowStepForTool } from '@/harness/workflow-steps'
+import {
+  enrichIngestParams,
+  extractConfirmCode,
+  inferApprovalFromMessage,
+  inferReportStatus,
+  ingestPayloadReady,
+} from '@/harness/nl-params'
+import { executeDagRun, DagTaskInput, ExecuteDagRunInput } from '@/orchestrator/execute-dag-run'
 
 function asStr(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
@@ -94,12 +102,45 @@ export interface ExecutePromptResult {
   error?: string
   suggested_params?: Record<string, unknown>
   hint?: string
+  fix?: string
+  workflow_step?: string
+}
+
+function normalizeDagTasks(raw: unknown): DagTaskInput[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter(
+      (t): t is Record<string, unknown> => typeof t === 'object' && t !== null && !Array.isArray(t)
+    )
+    .map((t, i) => ({
+      id: asStr(t.id, `T${i + 1}`),
+      label: asStr(t.label, asStr(t.id, `Task ${i + 1}`)),
+      deps: Array.isArray(t.deps) ? (t.deps as string[]) : undefined,
+      prompt: optStr(t.prompt),
+      timeout_ms: typeof t.timeout_ms === 'number' ? t.timeout_ms : undefined,
+    }))
+}
+
+function buildAutoPlanTasks(
+  title: string,
+  description: string,
+  successCriteria?: string[]
+): DagTaskInput[] {
+  const criteria = successCriteria?.length
+    ? successCriteria
+    : ['Complete the described work', 'Verify with tests']
+  return criteria.map((c, i) => ({
+    id: `T${i + 1}`,
+    label: c.slice(0, 80),
+    deps: i === 0 ? [] : [`T${i}`],
+  }))
 }
 
 function guardIngestExecute(
   tool: string,
   p: Record<string, unknown>,
-  message: string
+  message: string,
+  projectRoot: string
 ): ExecutePromptResult | null {
   const destructive = new Set([
     'ingest_pipeline',
@@ -109,6 +150,9 @@ function guardIngestExecute(
   ])
   if (!destructive.has(tool)) return null
 
+  const enriched = enrichIngestParams(p, message, projectRoot)
+  Object.assign(p, enriched)
+
   const payload = {
     content: optStr(p.content),
     file_path: optStr(p.file_path),
@@ -116,38 +160,27 @@ function guardIngestExecute(
     skip_raw: p.skip_raw === true,
   }
 
+  if (ingestPayloadReady(p, message, projectRoot)) return null
+
   if (tool === 'ingest_source' || tool === 'ingest_source_batch') {
     if (payload.raw_id) return null
     if (hasSubstantialIngestContent(payload.content)) return null
     if (Array.isArray(p.concepts) && p.concepts.length > 0) return null
-    return {
-      tool,
-      executed: false,
-      suggested_params: p,
-      hint:
-        `${tool} refused: provide raw_id and/or substantial content (>= ${MIN_INGEST_CONTENT_CHARS} chars), ` +
-        'or concepts[]. Do not pass chat/command text as the document.',
-      error: 'missing_ingest_document',
-    }
   }
 
-  if (!hasIngestDocumentPayload(payload)) {
-    return {
-      tool,
-      executed: false,
-      suggested_params: {
-        ...p,
-        _message: message.slice(0, 120),
-      },
-      hint:
-        `${tool} refused: pass file_path, raw_id (re-ingest existing raw), or substantial content ` +
-        `(>= ${MIN_INGEST_CONTENT_CHARS} chars). Chat text alone is not ingested. ` +
-        'Example: ingest_pipeline({ file_path: "docs/x.md", concepts: [...] }) or ' +
-        'ingest_pipeline({ raw_id: "a117f128", skip_raw: true, concepts: [...] }).',
-      error: 'missing_ingest_document',
-    }
+  const fileHint = payload.file_path ? ` Found path: ${payload.file_path}.` : ''
+  return {
+    tool,
+    executed: false,
+    suggested_params: p,
+    hint:
+      `${tool} needs file_path, raw_id, substantial content (>= ${MIN_INGEST_CONTENT_CHARS} chars), or concepts[].` +
+      fileHint +
+      ' Example: "ingest pipeline README.md" or paste a long document body.',
+    error: 'missing_ingest_document',
+    fix: 'ingest_pipeline with file_path or raw_id + concepts',
+    workflow_step: 'ingest',
   }
-  return null
 }
 
 export async function executePromptRoute(
@@ -171,10 +204,11 @@ export async function executePromptRoute(
       executed: false,
       suggested_params: p,
       hint: 'Set execute:true to run, or call the tool directly with suggested_params.',
+      workflow_step: workflowStepForTool(route.tool),
     }
   }
 
-  const ingestGuard = guardIngestExecute(route.tool, p, message)
+  const ingestGuard = guardIngestExecute(route.tool, p, message, deps.projectRoot)
   if (ingestGuard) return ingestGuard
 
   try {
@@ -259,8 +293,21 @@ async function dispatchTool(
         answers,
         skip_questions: p.skip_questions === true,
         write_docs: typeof p.write_docs === 'boolean' ? p.write_docs : undefined,
+        response_format:
+          p.response_format === 'markdown' || p.response_format === 'structured'
+            ? p.response_format
+            : undefined,
       })
     }
+
+    case 'domain_context':
+      return domainContext(vault, search, asStr(p.task, message), {
+        project_root: projectRoot,
+        top_k: Number(p.top_k) || undefined,
+        include_plan: p.include_plan === true,
+        format:
+          p.format === 'json' || p.format === 'markdown' || p.format === 'path' ? p.format : 'path',
+      })
 
     case 'seed_stack_playbooks':
       return {
@@ -269,7 +316,10 @@ async function dispatchTool(
       }
 
     case 'run_domain_loop':
-      return runDomainLoop(vault, search, asStr(p.task, message), { project_root: projectRoot })
+      return runDomainLoop(vault, search, asStr(p.task, message), {
+        project_root: projectRoot,
+        format: 'path',
+      })
 
     case 'bootstrap_domain': {
       const pack = await buildDomainContextPack(vault, search, asStr(p.task, message), {
@@ -332,7 +382,12 @@ async function dispatchTool(
         raw_id: optStr(p.raw_id),
         skip_raw: p.skip_raw === true || Boolean(optStr(p.raw_id)),
         project_root: projectRoot,
-        run_lint: p.run_lint !== false,
+        lint_mode:
+          p.lint_mode === 'none' || p.lint_mode === 'summary' || p.lint_mode === 'full'
+            ? p.lint_mode
+            : p.run_lint === false
+              ? 'none'
+              : 'summary',
         lint_deep: p.deep === true || p.lint_deep === true,
         concepts: p.concepts as
           import('@/knowledge/wiki-ingest-pipeline').IngestConceptInput[] | undefined,
@@ -346,7 +401,12 @@ async function dispatchTool(
       })
 
     case 'query_wiki':
-      return queryWiki(vault, search, asStr(p.query, message), Number(p.top_k) || 5)
+      return queryWiki(vault, search, asStr(p.query, message), Number(p.top_k) || 5, {
+        response_mode:
+          p.response_mode === 'full' || p.response_mode === 'snippets'
+            ? p.response_mode
+            : 'snippets',
+      })
 
     case 'file_back':
       return fileBack(vault, search, {
@@ -484,16 +544,21 @@ async function dispatchTool(
       const secret = optStr(p.session_secret)
       if (s.sessionSecret && process.env.AIO_ALLOW_REPORT_WITHOUT_SECRET !== '1') {
         if (secret !== s.sessionSecret) {
-          return { error: 'session_secret required (from spawn prompt / AIO_SESSION_SECRET env)' }
+          return {
+            ok: false,
+            error: 'session_secret required',
+            hint: 'Use session_secret from spawn_session response or set AIO_ALLOW_REPORT_WITHOUT_SECRET=1',
+          }
         }
       }
-      inbox.post(sid, `session:${sid}`, asStr(p.status, 'completed'), {
+      const status = asStr(p.status, inferReportStatus(message) || 'completed')
+      inbox.post(sid, `session:${sid}`, status, {
         summary: asStr(p.summary, message),
       })
-      if (p.status === 'completed' || p.status === 'failed') {
-        s.status = p.status
+      if (status === 'completed' || status === 'failed') {
+        s.status = status
       }
-      return { posted: true }
+      return { posted: true, status }
     }
 
     case 'synthesize_results':
@@ -526,13 +591,43 @@ async function dispatchTool(
       }
     }
 
-    case 'execute_dag':
-      return {
-        blocked: true,
-        reason: 'execute_dag needs structured tasks from plan_task',
-        hint: 'Call plan_task first, then execute_dag with returned suggested_tasks',
-        resume_requested: p.resume === true,
+    case 'execute_dag': {
+      let tasks = normalizeDagTasks(p.tasks || p.suggested_tasks)
+      let planId = asStr(p.plan_id, asStr(p.title, 'Task'))
+
+      if (!tasks.length) {
+        const title = asStr(p.title, planId)
+        const description = asStr(p.description, message)
+        const criteria = p.success_criteria as string[] | undefined
+        planner.createPlan(title, description, criteria)
+        tasks = buildAutoPlanTasks(title, description, criteria)
+        planId = title
       }
+
+      return executeDagRun(
+        {
+          projectRoot,
+          sessions,
+          inbox,
+          dagResults,
+          maxSessions,
+          approval,
+        },
+        {
+          plan_id: planId,
+          tasks,
+          resume: p.resume === true,
+          clear_checkpoint: p.clear_checkpoint === true,
+          fail_fast: p.fail_fast === true,
+          max_parallel: typeof p.max_parallel === 'number' ? p.max_parallel : undefined,
+          worktree: p.worktree === true,
+          runtime: p.runtime as ExecuteDagRunInput['runtime'],
+          approval_id: optStr(p.approval_id),
+          skip_approval: p.skip_approval === true,
+          require_approval_if_dangerous: p.require_approval_if_dangerous !== false,
+        }
+      )
+    }
 
     case 'request_approval':
       return approval.request(
@@ -542,13 +637,21 @@ async function dispatchTool(
       )
 
     case 'resolve_approval': {
-      const approved = p.approved === true
-      const rejected = p.approved === false
-      if (!approved && !rejected) {
-        return { error: 'resolve_approval requires explicit approved:true or approved:false' }
+      let approved: boolean | undefined
+      if (p.approved === true) approved = true
+      else if (p.approved === false) approved = false
+      else approved = inferApprovalFromMessage(message)
+
+      if (approved === undefined) {
+        return {
+          ok: false,
+          error: 'approval_decision_required',
+          hint: 'Say approve/승인 or reject/거부 in the message, or pass approved:true|false',
+          fix: 'resolve_approval with approval_id and approved:true or approved:false',
+        }
       }
       return approval.resolve(asStr(p.approval_id), approved, asStr(p.resolver, 'human'), {
-        confirmCode: typeof p.confirm_code === 'string' ? p.confirm_code : undefined,
+        confirmCode: optStr(p.confirm_code) || extractConfirmCode(message),
       })
     }
 
@@ -596,9 +699,14 @@ async function dispatchTool(
       return { summary: branchHunt.summary(), issues: branchHunt.getIssues() }
 
     case 'recall_knowledge': {
-      await search.load()
-      const results = await search.search(asStr(p.query, message), Number(p.top_k) || 5)
-      return { results }
+      const data = await queryWiki(vault, search, asStr(p.query, message), Number(p.top_k) || 5, {
+        response_mode: 'snippets',
+      })
+      return {
+        deprecated: true,
+        use_instead: 'query_wiki',
+        results: data.pages,
+      }
     }
 
     case 'store_knowledge': {
@@ -608,7 +716,11 @@ async function dispatchTool(
       const full = await vault.writeNote(notePath, content)
       await search.addDocument(notePath, notePath.split('/').pop() || notePath, content)
       await search.save()
-      return { path: full }
+      return {
+        deprecated: true,
+        use_instead: 'ingest_pipeline or file_back',
+        path: full,
+      }
     }
 
     default:

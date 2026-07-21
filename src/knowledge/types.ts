@@ -13,6 +13,7 @@ export interface SearchResult {
   score: number
   snippet: string
   tags: string[]
+  degraded?: boolean
 }
 
 export interface Issue {

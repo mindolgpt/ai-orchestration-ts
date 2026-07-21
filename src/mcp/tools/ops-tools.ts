@@ -5,9 +5,11 @@ import { getEventLog } from '@/observability/events'
 import { listWorktrees, removeWorktree } from '@/orchestrator/worktree'
 import { runDoctor } from '@/doctor/check'
 import { resolveProjectRoot } from '@/knowledge/paths'
+import { jsonResult } from '@/mcp/json-result'
+import { registerMcpTool } from '@/mcp/register-tool'
 
 function json(data: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+  return jsonResult(data)
 }
 
 export function registerOpsTools(
@@ -16,7 +18,8 @@ export function registerOpsTools(
   projectRoot?: string
 ): void {
   const root = projectRoot || resolveProjectRoot()
-  server.registerTool(
+  registerMcpTool(
+    server,
     'request_approval',
     {
       description:
@@ -32,7 +35,8 @@ export function registerOpsTools(
       json(await approval.request(args.action, args.reason, args.risk || 'high', args.meta))
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'resolve_approval',
     {
       description:
@@ -52,7 +56,8 @@ export function registerOpsTools(
       )
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'list_approvals',
     {
       description: 'List approval requests',
@@ -66,7 +71,8 @@ export function registerOpsTools(
       })
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'get_events',
     {
       description: 'Recent orchestrator observability events (also written to .aio/events.jsonl)',
@@ -82,15 +88,18 @@ export function registerOpsTools(
       })
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'list_worktrees',
     {
       description: 'List git worktrees (aio session isolation)',
+      inputSchema: z.object({}),
     },
     async () => json({ porcelain: await listWorktrees() })
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'run_doctor',
     {
       description:
@@ -108,7 +117,8 @@ export function registerOpsTools(
       )
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'remove_worktree',
     {
       description: 'Remove an aio session worktree',

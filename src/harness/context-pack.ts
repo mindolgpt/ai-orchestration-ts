@@ -67,7 +67,7 @@ export async function buildDomainContextPack(
 ): Promise<DomainContextPack> {
   const { profile } = await loadDomainProfile(vault, opts?.project_root)
   const topK = opts?.top_k ?? profile.wiki?.default_top_k ?? 5
-  const schema = await getWikiSchema(vault)
+  const schema = await getWikiSchema(vault, { mode: 'full' })
   const wikiIndex = (await vault.readNote('wiki/index.md')) || ''
 
   const queries = [
@@ -90,7 +90,7 @@ export async function buildDomainContextPack(
         path: p.path,
         title: p.title,
         score: p.score,
-        excerpt: excerpt(p.full_content || p.snippet),
+        excerpt: excerpt('full_content' in p && p.full_content ? p.full_content : p.snippet),
       })
     }
     if (pages.length >= topK + 3) break
@@ -123,7 +123,7 @@ export async function buildDomainContextPack(
   const pack: DomainContextPack = {
     task,
     profile,
-    schema_excerpt: excerpt(schema.content, 800),
+    schema_excerpt: excerpt(schema.content || schema.excerpt || '', 800),
     wiki_index_excerpt: excerpt(wikiIndex, 600),
     pages: pages.slice(0, topK + 5),
     citations: pages.map((p) => ({ path: p.path, title: p.title, score: p.score })),

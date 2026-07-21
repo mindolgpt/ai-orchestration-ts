@@ -40,7 +40,7 @@ describe('MessageInbox', () => {
     const a = new MessageInbox({ backend: 'file', storagePath: dir })
     await a.ensureReady()
     a.post('s1', 'x', 'completed', { summary: 'hi' })
-    await new Promise((r) => setTimeout(r, 50))
+    await a.flush()
     const b = new MessageInbox({ backend: 'file', storagePath: dir })
     await b.ensureReady()
     const msgs = b.peek('s1')

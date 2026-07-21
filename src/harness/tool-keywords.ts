@@ -158,6 +158,23 @@ export const TOOL_KEYWORDS: ToolKeywordDef[] = [
     hint: 'Full domain loop brief',
   },
   {
+    id: 'domain_context',
+    category: 'harness',
+    keywords: [
+      'domain_context',
+      'domain context',
+      'wiki context',
+      'context pack',
+      '도메인 컨텍스트',
+      'wiki 컨텍스트',
+    ],
+    patterns: [/domain\s+context/i, /wiki\s*컨텍스트/i, /도메인\s*컨텍스트/i],
+    weight: 2,
+    minScore: 4,
+    textParam: 'task',
+    hint: 'Unified domain context (prefer over bootstrap_domain)',
+  },
+  {
     id: 'bootstrap_domain',
     category: 'harness',
     keywords: [

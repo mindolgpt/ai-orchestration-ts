@@ -23,6 +23,7 @@ import {
 } from '@/mcp/tools'
 import { registerOpsTools } from '@/mcp/tools/ops-tools'
 import { registerHarnessTools } from '@/mcp/tools/harness-tools'
+import { registerMcpResources } from '@/mcp/resources'
 import { assertSseAuthorized, resolveSseAuthRequirement } from '@/security/sse-auth'
 
 export interface MCPServerOptions {
@@ -71,11 +72,12 @@ export class MCPServer {
     })
 
     this.server = new McpServer(
-      { name: 'aio-orchestrator', version: '2.14.1' },
-      { capabilities: { tools: {} } }
+      { name: 'aio-orchestrator', version: '2.15.0' },
+      { capabilities: { tools: {}, resources: {} } }
     )
 
     this.setupTools()
+    registerMcpResources(this.server, this.vault)
   }
 
   private setupTools(): void {

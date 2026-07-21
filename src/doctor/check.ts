@@ -17,7 +17,7 @@ import { HarnessTarget } from '@/harness/types'
 
 const execFileAsync = promisify(execFile)
 
-export type DoctorSeverity = 'ok' | 'warn' | 'fail'
+export type DoctorSeverity = 'ok' | 'info' | 'warn' | 'fail'
 
 export interface DoctorCheck {
   id: string
@@ -196,6 +196,20 @@ export async function runDoctor(opts?: {
             ? 'Run: aio init (or recall once to build index)'
             : undefined,
     })
+    try {
+      const faissMod = await import('@/knowledge/faiss')
+      await faissMod.loadFaissIndexFlatIP()
+      if (faissMod.isFaissMockMode()) {
+        checks.push({
+          id: 'faiss_native',
+          severity: 'warn',
+          message: 'faiss-node unavailable — using in-memory mock index (search quality degraded)',
+          fix: 'Install faiss-node build deps or use VECTOR_STORE=qdrant/chroma remote',
+        })
+      }
+    } catch {
+      /* faiss load probe optional */
+    }
   } else {
     const probe = await probeRemoteVectorStore(storeKind)
     indexReadyForEmbed = probe.ok
@@ -387,8 +401,8 @@ export async function runDoctor(opts?: {
     const runtime = process.env.AIO_SESSION_RUNTIME || 'opencode'
     checks.push({
       id: 'session_runtime',
-      severity: 'ok',
-      message: `Session runtime: ${runtime} (PATH probe skipped)`,
+      severity: 'info',
+      message: `Session runtime: ${runtime} (PATH probe skipped in quick mode)`,
     })
   }
 
@@ -422,6 +436,26 @@ export async function runDoctor(opts?: {
         severity: 'warn',
         message: 'Embedder smoke test failed',
         detail: err instanceof Error ? err.message : String(err),
+        fix: 'Set EMBEDDING_PROVIDER=openai + OPENAI_API_KEY, or fix local @xenova/transformers/sharp install',
+      })
+    }
+  }
+
+  if (embedProvider === 'local' && !opts?.skipEmbedTest) {
+    try {
+      await import('@xenova/transformers')
+      checks.push({
+        id: 'native_deps',
+        severity: 'ok',
+        message: 'Local embedding deps (@xenova/transformers) load OK',
+      })
+    } catch (err) {
+      checks.push({
+        id: 'native_deps',
+        severity: 'warn',
+        message: 'Local embedding deps failed to load (sharp/transformers)',
+        detail: err instanceof Error ? err.message : String(err),
+        fix: 'EMBEDDING_PROVIDER=openai or npm rebuild sharp in aio-mcp install dir',
       })
     }
   }

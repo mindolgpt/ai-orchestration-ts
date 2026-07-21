@@ -178,9 +178,10 @@ describe('domain context pack', () => {
     const search = mockSearch()
     const loop = await runDomainLoop(vault, search, '장바구니 API', {
       include_plan: true,
+      format: 'markdown',
       project_root: root,
     })
-    expect(loop.agent_instructions).toContain('Domain loop')
+    expect('markdown' in loop && loop.markdown).toContain('Domain loop')
     expect(loop.plan_stub?.title).toBeDefined()
   })
 })

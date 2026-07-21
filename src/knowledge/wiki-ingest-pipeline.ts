@@ -2,7 +2,13 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import { ObsidianVault } from '@/knowledge/vault'
 import { SemanticSearch } from '@/knowledge/search'
-import { ingestRaw, ingestSource, lintWiki, IngestSourceInput } from '@/knowledge/wiki-ops'
+import {
+  ingestRaw,
+  ingestSource,
+  lintWiki,
+  IngestSourceInput,
+  summarizeLintResult,
+} from '@/knowledge/wiki-ops'
 
 export interface IngestConceptInput {
   title: string
@@ -37,8 +43,11 @@ export interface IngestPipelineInput {
   file_path?: string
   source_uri?: string
   concepts?: IngestConceptInput[]
+  /** @deprecated use lint_mode */
   run_lint?: boolean
   lint_deep?: boolean
+  /** none | summary (default when lint runs) | full */
+  lint_mode?: 'none' | 'summary' | 'full'
   project_root?: string
   /** Re-ingest wiki from an existing immutable raw document (no new raw file) */
   raw_id?: string
@@ -424,9 +433,13 @@ export async function ingestPipeline(
     wiki_pages = [single]
   }
 
-  let lint
-  if (opts.run_lint !== false) {
-    lint = await lintWiki(vault, { deep: opts.lint_deep === true, staleDays: 90 })
+  let lint: unknown
+  const lintMode =
+    opts.lint_mode ??
+    (opts.run_lint === false ? 'none' : opts.run_lint === true ? 'full' : 'summary')
+  if (lintMode !== 'none') {
+    const full = await lintWiki(vault, { deep: opts.lint_deep === true, staleDays: 90 })
+    lint = lintMode === 'full' ? full : summarizeLintResult(full)
   }
 
   return {
@@ -438,7 +451,7 @@ export async function ingestPipeline(
     next_steps: [
       'Review wiki pages and split concepts if the single-page default is too broad',
       'update_wiki_page for cross-links to existing domain pages',
-      opts.run_lint === false ? 'Run lint_wiki when done' : 'Fix lint issues if any',
+      lintMode === 'none' ? 'Run lint_wiki when done' : 'Fix lint issues if any',
     ],
   }
 }

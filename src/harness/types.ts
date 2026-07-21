@@ -111,11 +111,14 @@ export interface BootstrapHarnessResult {
 
 export interface DomainLoopResult {
   phase: string
-  context_pack: DomainContextPack
+  context_pack?: DomainContextPack
   plan_stub?: {
     title: string
     suggested_success_criteria: string[]
     suggested_constraints: string[]
   }
-  agent_instructions: string
+  agent_instructions?: string
+  cache_path?: string
+  format?: 'markdown'
+  markdown?: string
 }

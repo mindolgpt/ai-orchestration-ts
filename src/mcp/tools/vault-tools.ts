@@ -11,9 +11,11 @@ import {
 import { scanRawInbox, ensureRawInbox, rawInboxDir } from '@/knowledge/raw-inbox'
 import { collectDashboardStats } from '@/dashboard/server'
 import { resolveProjectRoot } from '@/knowledge/paths'
+import { jsonResult as mcpJsonResult } from '@/mcp/json-result'
+import { registerMcpTool } from '@/mcp/register-tool'
 
 function jsonResult(data: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] }
+  return mcpJsonResult(data)
 }
 
 export function registerVaultTools(
@@ -24,11 +26,13 @@ export function registerVaultTools(
 ): void {
   const root = projectRoot || resolveProjectRoot()
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'list_vaults',
     {
       description:
         'List registered vaults from .aio/vaults.yaml. Active vault is chosen at MCP process start via AIO_VAULT_NAME / AIO_VAULT_PATH / registry default — change env and restart MCP to switch (register_vault only updates yaml).',
+      inputSchema: z.object({}),
     },
     async () => {
       const reg = await loadVaultRegistry(root)
@@ -41,7 +45,8 @@ export function registerVaultTools(
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'register_vault',
     {
       description:
@@ -60,7 +65,8 @@ export function registerVaultTools(
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'scan_raw_inbox',
     {
       description:
@@ -84,12 +90,17 @@ export function registerVaultTools(
     }
   )
 
-  server.registerTool(
+  registerMcpTool(
+    server,
     'get_dashboard_stats',
     {
       description: 'Wiki coverage, proposals, raw inbox, events — same data as `aio dashboard` UI.',
+      inputSchema: z.object({
+        quick: z.boolean().optional(),
+      }),
     },
-    async () => jsonResult(await collectDashboardStats(vault, root))
+    async (args) =>
+      jsonResult(await collectDashboardStats(vault, root, search, { quick: args.quick === true }))
   )
 }
 

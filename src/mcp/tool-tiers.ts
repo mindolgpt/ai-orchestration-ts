@@ -19,6 +19,7 @@ const CORE_TOOLS = new Set([
   'bootstrap_harness',
   'recall_knowledge',
   'synthesize_results',
+  'generate_usage_guide',
 ])
 
 const WIKI_EXTRA = new Set([

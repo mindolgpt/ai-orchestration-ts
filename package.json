@@ -10,7 +10,8 @@
   "files": [
     "dist",
     "README.md",
-    "templates"
+    "templates",
+    "docs/mcp-guide"
   ],
   "publishConfig": {
     "access": "public"

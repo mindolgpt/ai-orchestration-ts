@@ -723,6 +723,12 @@ async function dispatchTool(
       }
     }
 
+    case 'generate_usage_guide': {
+      const { writeDocs } = await import('@/docs/generator')
+      const files = await writeDocs(projectRoot)
+      return { ok: true, files }
+    }
+
     default:
       return { error: `Tool ${tool} not wired in prompt executor` }
   }

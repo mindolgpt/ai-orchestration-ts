@@ -1,8 +1,9 @@
 import * as fs from 'node:fs'
 
 export interface FaissSearchResult {
-  distances: Float32Array
-  indices: Int32Array
+  distances: Float32Array | number[]
+  indices: Int32Array | number[]
+  labels?: Int32Array | number[]
 }
 
 export interface FaissIndex {
@@ -54,6 +55,7 @@ export function createMockIndexFlatIP(): FaissIndexFlatIPCtor {
       return {
         distances: new Float32Array(indices.map((i) => distances[i])),
         indices: new Int32Array(indices),
+        labels: new Int32Array(indices),
       }
     }
 

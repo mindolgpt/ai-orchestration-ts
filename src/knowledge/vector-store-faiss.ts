@@ -70,13 +70,14 @@ export class FaissVectorStore implements VectorStore {
 
   async search(vector: number[], topK: number): Promise<VectorSearchHit[]> {
     if (!this.index || !this.documents.length) return []
-    const { distances, indices } = this.index.search(
+    const { distances, indices, labels } = this.index.search(
       Array.from(vector),
       Math.min(topK, this.documents.length)
     )
+    const idxArr: number[] = Array.from(indices ?? (labels as Int32Array | number[]) ?? [])
     const hits: VectorSearchHit[] = []
-    for (let i = 0; i < indices.length; i++) {
-      const idx = indices[i]
+    for (let i = 0; i < idxArr.length; i++) {
+      const idx = idxArr[i]
       if (idx < 0 || idx >= this.documents.length) continue
       const doc = this.documents[idx]
       hits.push({

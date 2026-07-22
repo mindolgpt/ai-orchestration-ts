@@ -1,7 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import { ObsidianVault } from '@/knowledge/vault'
-import { SemanticSearch } from '@/knowledge/search'
 import { bootstrapHarness } from '@/harness/bootstrap'
 import {
   buildDomainContextPack,
@@ -493,12 +491,23 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
         stacks: ALL_STACK_IDS,
       })
   )
-}
 
-/** @deprecated use HarnessToolsContext */
-export type HarnessToolsLegacy = (
-  server: McpServer,
-  vault: ObsidianVault,
-  search: SemanticSearch,
-  projectRoot?: string
-) => void
+  registerMcpTool(
+    server,
+    'generate_usage_guide',
+    {
+      description:
+        'Generate comprehensive MCP tool usage guide in docs/mcp-guide/. Korean + English. Keywords: 도구 사용법 / tool guide / usage guide / documentation.',
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const { writeDocs } = await import('@/docs/generator')
+      const files = await writeDocs(root)
+      return json({
+        ok: true,
+        files,
+        hint: 'Open README-ko.md for Korean, README-en.md for English.',
+      })
+    }
+  )
+}

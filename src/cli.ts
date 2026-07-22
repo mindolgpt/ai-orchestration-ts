@@ -8,9 +8,9 @@ import { Command, OptionValues } from 'commander'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
-const pkg: { version: string } = JSON.parse(
-  readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8')
-)
+const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8')) as {
+  version: string
+}
 
 interface InitOptions extends OptionValues {
   vault?: string
@@ -867,6 +867,18 @@ program
     table.push(['Vault', '✓', `${vaultPath} (${notes.length} notes)`])
     table.push(['Vector store', '✓', storeDetail])
     console.log(table.toString())
+  })
+
+program
+  .command('docs')
+  .description('Generate MCP tool usage guide in docs/mcp-guide/')
+  .action(async () => {
+    const projectRoot = resolveProjectRoot()
+    const { writeDocs } = await import('@/docs/generator')
+    const files = await writeDocs(projectRoot)
+    console.log(chalk.bold.cyan('\n📖 MCP tool usage guide generated\n'))
+    for (const f of files) console.log(`  ✓ ${f}`)
+    console.log(chalk.green('\nOpen README-ko.md for Korean, README-en.md for English.\n'))
   })
 
 program

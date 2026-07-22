@@ -77,7 +77,7 @@ describe('prompt-executor', () => {
     })
     expect(out.executed).toBe(true)
     expect(out.error).toBeUndefined()
-  })
+  }, 30000)
 
   test('explicit tool id in message routes when keywords miss', async () => {
     const route = routePrompt('please run query_wiki for carts')

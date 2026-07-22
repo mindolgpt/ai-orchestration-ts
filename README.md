@@ -13,39 +13,39 @@ npx -y @mindol1004/aio-mcp mcp-serve     # start MCP server (stdio)
 
 ## Quick start (5 minutes)
 
-| # | Command | What it does |
-|---|---------|-------------|
-| 1 | `npx -y @mindol1004/aio-mcp init` | Create `vault/` + search index |
-| 2 | Connect MCP (see [setup by tool](#mcp-setup-by-ai-tool)) + reload |
-| 3 | `aio doctor` | Diagnose install, paths, vault |
-| 4 | `npx -y @mindol1004/aio-mcp mcp-serve` | Start MCP server |
-| 5 | In chat: "ingest this README" or "wiki lint" | Test the pipeline |
+| #   | Command                                                           | What it does                   |
+| --- | ----------------------------------------------------------------- | ------------------------------ |
+| 1   | `npx -y @mindol1004/aio-mcp init`                                 | Create `vault/` + search index |
+| 2   | Connect MCP (see [setup by tool](#mcp-setup-by-ai-tool)) + reload |
+| 3   | `aio doctor`                                                      | Diagnose install, paths, vault |
+| 4   | `npx -y @mindol1004/aio-mcp mcp-serve`                            | Start MCP server               |
+| 5   | In chat: "ingest this README" or "wiki lint"                      | Test the pipeline              |
 
 ## Features
 
-| Area | What it does | Key tools |
-|------|-------------|-----------|
-| **Wiki (RAG)** | Karpathy-style 3-layer wiki: raw → wiki → schema. FAISS or remote vector DB | `ingest_pipeline`, `query_wiki`, `lint_wiki`, `file_back` |
-| **Sessions** | Spawn isolated AI sessions for parallel research/coding | `spawn_session`, `check_inbox`, `synthesize_results` |
-| **DAG** | Auto-plan goals into task graphs, execute layers in parallel | `plan_task`, `execute_dag` |
-| **Branch Hunt** | DFS scan for issues → independent fix sessions per issue | `scan_issues`, `collect_results` |
-| **Brainstorm** | Multi-turn product design with wiki-backed option comparison | `brainstorm_design` |
-| **Domain context** | Project-aware context packing from wiki → harness → agent | `domain_context`, `bootstrap_harness` |
-| **Ingest pipeline** | Drop files → auto-ingest (raw → wiki pages → lint) | `ingest_pipeline`, `scan_raw_inbox`, `aio watch` |
-| **Wiki MR** | Propose → review → apply/reject wiki changes (diff-based) | `propose_wiki_change`, `apply_wiki_proposal` |
-| **Natural language** | 50 keyword-routed tools, KO/EN support, auto-plan on `execute_dag` | `aio_prompt` |
+| Area                 | What it does                                                                | Key tools                                                 |
+| -------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------- |
+| **Wiki (RAG)**       | Karpathy-style 3-layer wiki: raw → wiki → schema. FAISS or remote vector DB | `ingest_pipeline`, `query_wiki`, `lint_wiki`, `file_back` |
+| **Sessions**         | Spawn isolated AI sessions for parallel research/coding                     | `spawn_session`, `check_inbox`, `synthesize_results`      |
+| **DAG**              | Auto-plan goals into task graphs, execute layers in parallel                | `plan_task`, `execute_dag`                                |
+| **Branch Hunt**      | DFS scan for issues → independent fix sessions per issue                    | `scan_issues`, `collect_results`                          |
+| **Brainstorm**       | Multi-turn product design with wiki-backed option comparison                | `brainstorm_design`                                       |
+| **Domain context**   | Project-aware context packing from wiki → harness → agent                   | `domain_context`, `bootstrap_harness`                     |
+| **Ingest pipeline**  | Drop files → auto-ingest (raw → wiki pages → lint)                          | `ingest_pipeline`, `scan_raw_inbox`, `aio watch`          |
+| **Wiki MR**          | Propose → review → apply/reject wiki changes (diff-based)                   | `propose_wiki_change`, `apply_wiki_proposal`              |
+| **Natural language** | 50 keyword-routed tools, KO/EN support, auto-plan on `execute_dag`          | `aio_prompt`                                              |
 
 ## Latest changes
 
-| Change | Detail |
-|--------|--------|
-| `query_wiki` | Default `response_mode: snippets` (use `full` only when needed) |
-| `domain_context` | Unified tool replacing `bootstrap_domain`/`run_domain_loop` |
-| `AIO_MCP_TOOL_SET` | `core` \| `wiki` \| `full` — reduce MCP schema noise |
-| `recall_knowledge` / `store_knowledge` | Deprecated — use `query_wiki` / `ingest_pipeline` |
-| `aio_prompt` | `execute` defaults to `true`; dry-run adds `workflow_step` |
-| Tool errors | Unified `{ ok, error, hint, fix }` on wiki ingest failures |
-| FAISS fix | `aio reindex` recovers empty index (Float32Array → number[]) |
+| Change                                 | Detail                                                          |
+| -------------------------------------- | --------------------------------------------------------------- |
+| `query_wiki`                           | Default `response_mode: snippets` (use `full` only when needed) |
+| `domain_context`                       | Unified tool replacing `bootstrap_domain`/`run_domain_loop`     |
+| `AIO_MCP_TOOL_SET`                     | `core` \| `wiki` \| `full` — reduce MCP schema noise            |
+| `recall_knowledge` / `store_knowledge` | Deprecated — use `query_wiki` / `ingest_pipeline`               |
+| `aio_prompt`                           | `execute` defaults to `true`; dry-run adds `workflow_step`      |
+| Tool errors                            | Unified `{ ok, error, hint, fix }` on wiki ingest failures      |
+| FAISS fix                              | `aio reindex` recovers empty index (Float32Array → number[])    |
 
 **One-shot health check:** `aio doctor` covers Node, `AIO_PROJECT_ROOT`, vault, wiki count, index, harness files, **active AI tool detection**, alerts for **unused tool files**, MCP config, git, rg, session runtime, and embeddings.
 
@@ -421,45 +421,46 @@ DATABASE_URL=postgres://user:pass@127.0.0.1:5432/aio
 - Restart MCP/CLI after changing `VECTOR_STORE` or related env.
 - Keep embedding dimension consistent with an existing remote collection/index (changing `EMBEDDING_PROVIDER` / model may require a new collection or re-ingest).
 - `aio doctor` and `aio status` report the active vector store.
+- Vector store connects **lazily** — first `search()` / `addDocument()` triggers connection; no startup delay for idle sessions.
 - See [`.env.example`](./.env.example) for the full list.
 
 > `.env` is **not** auto-loaded. Export vars in the shell or MCP `env`.
 
 ## CLI
 
-| Command                                      | Description                                                    |
-| -------------------------------------------- | -------------------------------------------------------------- |
-| `aio init [--vault]`                         | Seed 3-layer vault + schema + local search index               |
-| `aio bootstrap-harness`                      | Wiki → domain harness (AGENTS.md, rules/hooks, MCP configs)    |
-| `aio seed-stacks`                            | Seed stack playbooks under `vault/wiki/stacks/` (37 stacks)    |
-| `aio design-architecture`                    | Wiki + stack architecture → `docs/architecture.md`             |
-| `aio ingest --file <path>`                   | One-shot ingest pipeline                                       |
-| `aio aio-prompt "<msg>"`                     | Natural-language routing (`--execute` to run)                  |
-| `aio doctor [--json] [--fail]`               | Onboarding / health diagnostics                                |
-| `aio watch-raw` / `aio scan-inbox`           | Watch or scan `raw-inbox/`                                     |
-| `aio vault list` / `aio vault register`      | Multi-vault registry (`vault-list` / `vault-register` aliases) |
-| `aio dashboard`                              | Coverage / proposals / inbox / events UI                       |
-| `aio wiki-lint [--fail]`                     | Wiki structure lint                                            |
-| `aio approval list` / `aio approval resolve` | Human-in-the-loop approval (CLI resolve is trusted)            |
-| `aio mcp-serve` / `aio serve`                | stdio / SSE MCP                                                |
-| `aio recall` / `aio status` / `aio example`  | Search, paths, demo                                            |
+| Command                                                  | Description                                                    |
+| -------------------------------------------------------- | -------------------------------------------------------------- |
+| `aio init [--vault]`                                     | Seed 3-layer vault + schema + local search index               |
+| `aio bootstrap-harness`                                  | Wiki → domain harness (AGENTS.md, rules/hooks, MCP configs)    |
+| `aio seed-stacks`                                        | Seed stack playbooks under `vault/wiki/stacks/` (37 stacks)    |
+| `aio design-architecture`                                | Wiki + stack architecture → `docs/architecture.md`             |
+| `aio ingest --file <path>`                               | One-shot ingest pipeline                                       |
+| `aio aio-prompt "<msg>"`                                 | Natural-language routing (`--execute` to run)                  |
+| `aio doctor [--json] [--fail]`                           | Onboarding / health diagnostics                                |
+| `aio watch-raw` / `aio scan-inbox`                       | Watch or scan `raw-inbox/`                                     |
+| `aio vault list` / `aio vault register`                  | Multi-vault registry (`vault-list` / `vault-register` aliases) |
+| `aio dashboard`                                          | Coverage / proposals / inbox / events UI                       |
+| `aio wiki-lint [--fail]`                                 | Wiki structure lint                                            |
+| `aio approval list` / `aio approval resolve`             | Human-in-the-loop approval (CLI resolve is trusted)            |
+| `aio mcp-serve` / `aio serve`                            | stdio / SSE MCP                                                |
+| `aio recall` / `aio status` / `aio docs` / `aio example` | Search, paths, usage guide, demo                               |
 
 ## MCP tools (52)
 
-| Category        | Count | Tools                                                                                                                                                                                                                                                               |
-| --------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Harness**     | 12    | `aio_prompt`, `list_tool_keywords`, `bootstrap_harness`, `seed_stack_playbooks`, `design_architecture`, `brainstorm_design`, **`domain_context`**, `bootstrap_domain`†, `run_domain_loop`†, `get_domain_profile`, `save_domain_profile`, `list_stack_playbooks`     |
-| **Wiki**        | 14    | `get_wiki_schema`, `ingest_pipeline`, `ingest_raw`†, `ingest_source`†, `ingest_source_batch`†, `update_wiki_page`, `query_wiki`, `file_back`, `lint_wiki`, `propose_wiki_change`, `list_wiki_proposals`, `apply_wiki_proposal`, `reject_wiki_proposal`, `wiki_diff` |
-| **Vault**       | 4     | `list_vaults`, `register_vault`, `scan_raw_inbox`, `get_dashboard_stats`                                                                                                                                                                                            |
-| **Session**     | 8     | `spawn_session`, `check_inbox`, `report_result`, `send_message`, `get_session`, `close_session`, `list_sessions`, `synthesize_results`                                                                                                                              |
-| **DAG**         | 2     | `plan_task`, `execute_dag`                                                                                                                                                                                                                                          |
-| **Ops**         | 7     | `request_approval`, `resolve_approval`, `list_approvals`, `get_events`, `list_worktrees`, `remove_worktree`, `run_doctor`                                                                                                                                           |
-| **Branch Hunt** | 3     | `scan_issues`, `collect_results`, `get_branch_status`                                                                                                                                                                                                               |
-| **Knowledge**   | 2     | `recall_knowledge`†, `store_knowledge`†                                                                                                                                                                                                                             |
+| Category        | Count | Tools                                                                                                                                                                                                                                                                                   |
+| --------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Harness**     | 13    | `aio_prompt`, `list_tool_keywords`, `bootstrap_harness`, `seed_stack_playbooks`, `design_architecture`, `brainstorm_design`, **`domain_context`**, `bootstrap_domain`†, `run_domain_loop`†, `get_domain_profile`, `save_domain_profile`, `list_stack_playbooks`, `generate_usage_guide` |
+| **Wiki**        | 14    | `get_wiki_schema`, `ingest_pipeline`, `ingest_raw`†, `ingest_source`†, `ingest_source_batch`†, `update_wiki_page`, `query_wiki`, `file_back`, `lint_wiki`, `propose_wiki_change`, `list_wiki_proposals`, `apply_wiki_proposal`, `reject_wiki_proposal`, `wiki_diff`                     |
+| **Vault**       | 4     | `list_vaults`, `register_vault`, `scan_raw_inbox`, `get_dashboard_stats`                                                                                                                                                                                                                |
+| **Session**     | 8     | `spawn_session`, `check_inbox`, `report_result`, `send_message`, `get_session`, `close_session`, `list_sessions`, `synthesize_results`                                                                                                                                                  |
+| **DAG**         | 2     | `plan_task`, `execute_dag`                                                                                                                                                                                                                                                              |
+| **Ops**         | 7     | `request_approval`, `resolve_approval`, `list_approvals`, `get_events`, `list_worktrees`, `remove_worktree`, `run_doctor`                                                                                                                                                               |
+| **Branch Hunt** | 3     | `scan_issues`, `collect_results`, `get_branch_status`                                                                                                                                                                                                                                   |
+| **Knowledge**   | 2     | `recall_knowledge`†, `store_knowledge`†                                                                                                                                                                                                                                                 |
 
 † **Deprecated** — responses include `deprecated: true` and `use_instead`. Prefer the replacements in [Agent token guide](#agent-token-guide).
 
-**Tier exposure:** `AIO_MCP_TOOL_SET=core` registers 16 core tools; `wiki` adds wiki/MR/vault extras; `full` (default) registers all 52.
+**Tier exposure:** `AIO_MCP_TOOL_SET=core` registers 17 core tools; `wiki` adds wiki/MR/vault extras; `full` (default) registers all 53.
 
 ### MCP resources
 
@@ -621,7 +622,7 @@ Reduce MCP + tool response tokens for AI agents:
 | Ingest            | `ingest_pipeline({ lint_mode: "summary" })` or `lint_mode: "none"` + separate `lint_wiki`         |
 | Brainstorm        | `response_format: "structured"`, `write_docs: false` until brief                                  |
 | Natural commands  | `aio_prompt({ message })` — **`execute` defaults to `true`**; set `execute:false` only to dry-run |
-| Tool list size    | `AIO_MCP_TOOL_SET=core` in MCP env (16 core tools)                                                |
+| Tool list size    | `AIO_MCP_TOOL_SET=core` in MCP env (17 core tools)                                                |
 | Keywords registry | Do not call `list_tool_keywords` repeatedly — use AGENTS.md                                       |
 | JSON debug        | `AIO_JSON_PRETTY=1` only when debugging                                                           |
 

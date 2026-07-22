@@ -17,6 +17,7 @@ import { seedStackPlaybooks, seedPatternPlaybooks } from '@/harness/seed-stacks'
 import { ALL_STACK_IDS } from '@/harness/stack-playbooks'
 import { executePromptRoute, PromptExecutorDeps } from '@/harness/prompt-executor'
 import { workflowStepForTool } from '@/harness/workflow-steps'
+
 import { jsonResult } from '@/mcp/json-result'
 import { registerMcpTool } from '@/mcp/register-tool'
 
@@ -175,7 +176,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     'bootstrap_harness',
     {
       description:
-        "Generate domain harness for detected AI tool (default: auto-detect 1 client). Use targets:['all'] for every client. Keywords: 하네스 / harness setup / bootstrap harness.",
+        "Generate domain harness for detected AI tool (default: auto-detect 1 client). Use targets:['all'] for every client. Keywords: 하네스 / harness setup / bootstrap harness. Language rule interview: pass interview:true to start Q&A (returns pending question); then call again with interview_answers to drive injection. Or pass language_rules_section directly.",
       inputSchema: z.object({
         targets: z
           .array(z.enum(['cursor', 'claude', 'opencode', 'codex', 'windsurf', 'continue', 'all']))
@@ -186,6 +187,36 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
         backend: z.string().optional(),
         frontend: z.string().optional(),
         prompt: z.string().optional(),
+        interview: z.boolean().optional(),
+        interview_answers: z
+          .object({
+            languages: z
+              .array(
+                z.enum([
+                  'typescript',
+                  'javascript',
+                  'python',
+                  'go',
+                  'rust',
+                  'java',
+                  'kotlin',
+                  'csharp',
+                  'php',
+                  'ruby',
+                  'swift',
+                  'elixir',
+                  'scala',
+                  'dart',
+                ])
+              )
+              .optional(),
+            strictness: z.enum(['strict', 'standard', 'loose']).optional(),
+            formatter: z.string().optional(),
+            testing: z.string().optional(),
+            notes: z.string().optional(),
+          })
+          .optional(),
+        language_rules_section: z.string().optional(),
       }),
     },
     async (args) => {
@@ -194,6 +225,9 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
         projectRoot: root,
         targets: args.targets,
         force: args.force,
+        language_rules_section: args.language_rules_section,
+        interview: args.interview === true,
+        interview_answers: args.interview_answers,
         profile: {
           ...(args.domain ? { domain: args.domain } : {}),
           ...(args.description || args.prompt

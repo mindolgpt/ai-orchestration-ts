@@ -3,7 +3,27 @@ import * as path from 'path'
 import { DomainProfile } from '@/harness/types'
 import { hookKeywordRules } from '@/harness/tool-keywords'
 
-export function projectAgentsMd(profile: DomainProfile): string {
+/**
+ * Optional language-rules section block rendered by the bootstrap interview
+ * wizard (src/harness/bootstrap-interview.ts → renderLanguageRulesSection).
+ * When present it is appended (in markdown form) before the MCP tools section
+ * of the shared role body. Tools without a markdown rule system still benefit:
+ * the section is plain markdown visible to the AI tool's instruction context.
+ */
+export interface RuleTemplateExtras {
+  /** Pre-rendered markdown block of per-language coding rules */
+  language_rules_section?: string
+}
+
+function rulesBlock(extras?: RuleTemplateExtras): string {
+  if (!extras?.language_rules_section) return ''
+  // Normalize trailing whitespace; guarantee single blank line on each side.
+  const block = extras.language_rules_section.trim()
+  if (!block) return ''
+  return `\n${block}\n`
+}
+
+export function projectAgentsMd(profile: DomainProfile, extras?: RuleTemplateExtras): string {
   const stack = [
     profile.stack?.backend && `Backend: ${profile.stack.backend}`,
     profile.stack?.frontend && `Frontend: ${profile.stack.frontend}`,
@@ -25,7 +45,7 @@ export function projectAgentsMd(profile: DomainProfile): string {
 5. Call **\`plan_task\`** for multi-step work; **\`execute_dag\`** when tasks are independent.
 6. After durable decisions, **\`file_back\`** into the wiki.
 7. Run **\`lint_wiki\`** when wiki structure may have changed.
-
+${rulesBlock(extras)}
 ## Workflow cards
 
 | Flow | Steps |
@@ -71,7 +91,7 @@ Re-run \`bootstrap_harness\` after changing \`.aio/domain-profile.yaml\`.
 `
 }
 
-function harnessRuleBody(profile: DomainProfile): string {
+function harnessRuleBody(profile: DomainProfile, extras?: RuleTemplateExtras): string {
   return `# Domain Wiki Harness (aio-mcp)
 
 You work on **${profile.domain}**. ${profile.description}
@@ -89,41 +109,41 @@ You work on **${profile.domain}**. ${profile.description}
 - Skip wiki lookup and guess domain rules
 - Collapse bounded contexts into one god-module
 - Edit \`vault/raw/\` (immutable)
-
+${rulesBlock(extras)}
 Stack: ${profile.stack?.backend || '—'} / ${profile.stack?.frontend || '—'}
 `
 }
 
-export function cursorRuleMdc(profile: DomainProfile): string {
+export function cursorRuleMdc(profile: DomainProfile, extras?: RuleTemplateExtras): string {
   return `---
 description: aio-mcp domain wiki harness — always bootstrap wiki context before coding
 alwaysApply: true
 ---
 
-${harnessRuleBody(profile)}`
+${harnessRuleBody(profile, extras)}`
 }
 
-export function windsurfRuleMd(profile: DomainProfile): string {
+export function windsurfRuleMd(profile: DomainProfile, extras?: RuleTemplateExtras): string {
   return `---
 trigger: always_on
 description: aio-mcp domain wiki harness — bootstrap wiki context before coding
 ---
 
-${harnessRuleBody(profile)}`
+${harnessRuleBody(profile, extras)}`
 }
 
-export function continueRuleMd(profile: DomainProfile): string {
+export function continueRuleMd(profile: DomainProfile, extras?: RuleTemplateExtras): string {
   return `---
 name: aio-mcp Domain Harness
 alwaysApply: true
 description: aio-mcp domain wiki harness — bootstrap wiki context before coding
 ---
 
-${harnessRuleBody(profile)}`
+${harnessRuleBody(profile, extras)}`
 }
 
-export function claudeMd(profile: DomainProfile): string {
-  return projectAgentsMd(profile).replace(
+export function claudeMd(profile: DomainProfile, extras?: RuleTemplateExtras): string {
+  return projectAgentsMd(profile, extras).replace(
     '# Project Agent Harness',
     '# Claude Code — Project Harness'
   )

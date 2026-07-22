@@ -107,6 +107,15 @@ export interface BootstrapHarnessResult {
   files: BootstrapFileResult[]
   profile_path: string
   next_steps: string[]
+  /** Present when interview: true was requested */
+  interview?: {
+    status: string
+    question?: unknown
+    detected_languages?: Array<{ id: string; label: string; evidence: string; confidence: number }>
+    answers?: unknown
+    rendered_rules_section?: string
+    hint?: string
+  }
 }
 
 export interface DomainLoopResult {

@@ -249,11 +249,17 @@ async function dispatchTool(
   } = deps
 
   switch (tool) {
-    case 'bootstrap_harness':
+    case 'bootstrap_harness': {
+      const interviewKeywords =
+        /\b(인터뷰|질문|물어|대화|설정|물어봐|interview|ask|question|setup wizard|guide|custom)\b/i
+      const wantsInterview = interviewKeywords.test(message) || p.interview === true
       return bootstrapHarness(vault, {
         projectRoot,
         targets: harness?.targets,
         force: harness?.force,
+        interview: wantsInterview,
+        interview_answers: p.interview_answers as
+          import('@/harness/bootstrap-interview').HarnessInterviewAnswers | undefined,
         prune_foreign: p.prune_foreign === true || /\bprune|foreign|정리\b/i.test(message),
         dry_run_prune: p.dry_run === true,
         profile: {
@@ -264,6 +270,7 @@ async function dispatchTool(
           },
         },
       })
+    }
 
     case 'design_architecture':
       return designArchitecture(vault, search, asStr(p.intent, message), {

@@ -21,16 +21,9 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
-      - name: Exchange GitHub OIDC token for npm registry token
-        id: auth
+      - name: Remove auth line from .npmrc (let npm use OIDC)
         run: |
-          OIDC_TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm" | jq -r '.value')
-          NPM_TOKEN=$(curl -s -X POST \
-            -H "Content-Type: application/json" \
-            -d "{\"token\": \"$OIDC_TOKEN\"}" \
-            https://registry.npmjs.org/-/npm/v1/oidc/claims/exchange | jq -r '.token')
-          echo "token=$NPM_TOKEN" >> "$GITHUB_OUTPUT"
+          sed -i '/_authToken/d' "$NPM_CONFIG_USERCONFIG" 2>/dev/null || true
 
       - name: Check current vs published version
         id: check
@@ -58,17 +51,18 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Publish
+      - name: Publish (try OIDC, fallback to NPM_TOKEN)
         run: |
-          npm config set //registry.npmjs.org/:_authToken ${{ steps.auth.outputs.token }}
-          npm publish --ignore-scripts --provenance
+          npm publish --ignore-scripts --provenance --access public 2>&1 || \
+          npm publish --ignore-scripts --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Deprecate old version
         run: |
           OLD_VERSION="${{ steps.check.outputs.published }}"
           if [ "$OLD_VERSION" != "none" ]; then
             NEW_VERSION="${{ steps.bump.outputs.new_version || steps.check.outputs.current }}"
-            npm config set //registry.npmjs.org/:_authToken ${{ steps.auth.outputs.token }}
             npm deprecate "@mindol1004/aio-mcp@${OLD_VERSION}" "superseded by ${NEW_VERSION}" || true
           fi
 

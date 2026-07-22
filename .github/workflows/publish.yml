@@ -1,0 +1,74 @@
+name: Publish to npm
+
+on:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Check current vs published version
+        id: check
+        run: |
+          CURRENT=$(node -e "console.log(require('./package.json').version)")
+          PUBLISHED=$(npm view @mindol1004/aio-mcp version 2>/dev/null || echo "none")
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          echo "published=$PUBLISHED" >> $GITHUB_OUTPUT
+          if [ "$CURRENT" != "$PUBLISHED" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Auto-bump patch version
+        if: steps.check.outputs.changed == 'false'
+        run: |
+          npm version patch --no-git-tag-version
+          echo "new_version=$(node -e "console.log(require('./package.json').version)")" >> $GITHUB_OUTPUT
+        id: bump
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish
+        run: npm publish --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Deprecate old version
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          OLD_VERSION="${{ steps.check.outputs.published }}"
+          if [ "$OLD_VERSION" != "none" ]; then
+            NEW_VERSION="${{ steps.bump.outputs.new_version || steps.check.outputs.current }}"
+            npm deprecate "@mindol1004/aio-mcp@${OLD_VERSION}" "superseded by ${NEW_VERSION}" || true
+          fi
+
+      - name: Commit bump and create tag
+        if: steps.check.outputs.changed == 'false'
+        run: |
+          VERSION=$(node -e "console.log(require('./package.json').version)")
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json 2>/dev/null || git add package.json
+          git commit -m "v$VERSION" || true
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}

@@ -435,6 +435,7 @@ DATABASE_URL=postgres://user:pass@127.0.0.1:5432/aio
 | `aio seed-stacks`                                        | Seed stack playbooks under `vault/wiki/stacks/` (37 stacks)    |
 | `aio design-architecture`                                | Wiki + stack architecture → `docs/architecture.md`             |
 | `aio ingest --file <path>`                               | One-shot ingest pipeline                                       |
+| `aio reindex`                                            | Rebuild FAISS index from existing wiki notes                   |
 | `aio aio-prompt "<msg>"`                                 | Natural-language routing (`--execute` to run)                  |
 | `aio doctor [--json] [--fail]`                           | Onboarding / health diagnostics                                |
 | `aio watch-raw` / `aio scan-inbox`                       | Watch or scan `raw-inbox/`                                     |
@@ -445,7 +446,7 @@ DATABASE_URL=postgres://user:pass@127.0.0.1:5432/aio
 | `aio mcp-serve` / `aio serve`                            | stdio / SSE MCP                                                |
 | `aio recall` / `aio status` / `aio docs` / `aio example` | Search, paths, usage guide, demo                               |
 
-## MCP tools (52)
+## MCP tools (53)
 
 | Category        | Count | Tools                                                                                                                                                                                                                                                                                   |
 | --------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -555,9 +556,19 @@ aio bootstrap-harness --domain ecommerce --backend spring-boot --frontend react
 - Risky prompts go through `request_approval` / `resolve_approval`
 - Prefer CLI `aio approval resolve` for trusted human resolve; MCP resolve needs `confirm_code` (or `AIO_ALLOW_MCP_APPROVAL_RESOLVE=1`)
 
-### Ralph Loop (internal)
+### Ralph Loop (retry + verify engine)
 
-`AIO_VERIFY_STEPS=build,lint,test,custom` · `AIO_VERIFY_CUSTOM_CMD` · backoff + jitter
+Each `execute_dag` node runs through Ralph: **implement** (spawn AI session) → **verify** (build/lint/test) → retry on failure.
+
+| Feature        | Detail                                                                         |
+| -------------- | ------------------------------------------------------------------------------ |
+| Max retries    | `ralph_max_retries` param (default 3) on `execute_dag`                         |
+| Backoff        | Exponential + jitter (`baseBackoffMs=500`, doubles up to 8s)                   |
+| Verify steps   | `AIO_VERIFY_STEPS=build,lint,test,custom` sequential ladder                    |
+| Custom command | `AIO_VERIFY_CUSTOM_CMD` + `AIO_VERIFY_CUSTOM_ARGS` (JSON array)                |
+| Progress       | Events emitted to event log (`ralph.progress`)                                 |
+| Disable        | `ralph_max_retries: 0` + `ralph_verify: false`                                 |
+| Integration    | `DAGOrchestrator` wraps each DAG node in Ralph; used by `execute_dag` MCP tool |
 
 ## Environment variables
 
@@ -587,11 +598,18 @@ aio bootstrap-harness --domain ecommerce --backend spring-boot --frontend react
 | `AIO_SESSION_RUNTIME`                       | Session runtime                                     |
 | `AIO_SESSION_COMMAND` / `AIO_SESSION_ARGS`  | Custom spawn                                        |
 | `AIO_INBOX_BACKEND` / `AIO_INBOX_REDIS_URL` | Inbox backend                                       |
-| `AIO_VERIFY_STEPS`                          | Ralph verify ladder                                 |
+| `AIO_VERIFY_STEPS`                          | Ralph verify ladder (`build,lint,test,custom`)      |
+| `AIO_VERIFY_CUSTOM_CMD`                     | Ralph custom verify command                         |
+| `AIO_VERIFY_CUSTOM_ARGS`                    | JSON array of args for custom verify                |
+| `AIO_DISABLE_RG`                            | Disable ripgrep in Branch Hunt (falls back to walk) |
 | `AIO_EVENTS=0`                              | Disable event log                                   |
 | `AIO_HARNESS_TARGET`                        | Force harness target detection                      |
 | `AIO_MCP_TOOL_SET`                          | `core` \| `wiki` \| `full` — tool registration tier |
 | `AIO_JSON_PRETTY`                           | `1` = pretty JSON tool responses (debug)            |
+| `AIO_WORKTREE`                              | Git worktree path for session isolation             |
+| `AIO_SESSION_ID`                            | Injected in child session env                       |
+| `AIO_SESSION_SECRET`                        | Injected in child session env for `report_result`   |
+| `AIO_PARENT_ORCHESTRATOR`                   | Injected in child session env                       |
 
 ### Security / hardening
 
@@ -607,6 +625,14 @@ Defaults are secure. `AIO_ALLOW_*=1` flags are intentional escape hatches.
 | `AIO_ALLOW_EXTERNAL_VAULT_PATH`                        | Register vaults outside the project root            |
 | `AIO_CHILD_ENV_PASSTHROUGH` / `AIO_CHILD_ENV_EXTRA`    | Expand child-process env allowlist                  |
 | `AIO_ALLOW_UNTRUSTED_EMBEDDING_MODEL`                  | Bypass local embedding model allowlist              |
+
+**Default security behaviors:**
+
+- **Path containment** — all vault/wiki file operations are restricted to the project root by default (`isPathInsideRoot`). Only paths under `AIO_PROJECT_ROOT` are writable.
+- **Child env allowlist** — child sessions inherit only `PATH`, `HOME`, `SHELL`, `NODE_PATH`, `npm_*`, and `AIO_*` / `OPENAI_*` / `ANTHROPIC_*` prefixed vars. Expand via `AIO_CHILD_ENV_PASSTHROUGH` or `AIO_CHILD_ENV_EXTRA`.
+- **Embedding model allowlist** — local models must start with `Xenova/` or `onnx-community/` prefixes. Set `AIO_ALLOW_UNTRUSTED_EMBEDDING_MODEL=1` to bypass.
+- **Dashboard mutation restrictions** — POST endpoints (apply/reject proposals, scan inbox) require loopback connection. Remote dashboard access is read-only.
+- **HTTP body size** — JSON body limit is 1 MB (configurable via `AIO_HTTP_MAX_BODY`).
 
 Auth for SSE/dashboard: `Authorization: Bearer …`, `X-Aio-Token`, or `?token=`.
 
@@ -664,6 +690,20 @@ Source-agent rules live in root [AGENTS.md](./AGENTS.md).
 npm run build && npm test && npm run typecheck
 npm run check:all    # typecheck + lint + format:check
 ```
+
+## Troubleshooting
+
+| Symptom                                              | Likely cause                     | Fix                                                                                    |
+| ---------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------- |
+| `aio mcp-serve` starts but tools show as "not found" | MCP config path or env wrong     | Restart AI tool after MCP config changes; verify with `aio doctor`                     |
+| Vector search returns 0 results                      | Empty or corrupt FAISS index     | `aio reindex` or delete `vault/.index/` and re-ingest                                  |
+| `faiss-node` build error on install                  | Missing native build deps        | Use `VECTOR_STORE=qdrant` with Docker Qdrant, or install `build-essential` / `python3` |
+| Session spawn fails / hangs                          | Runtime not found or timeout     | Check `AIO_SESSION_RUNTIME`; increase `timeout_ms`                                     |
+| `report_result` returns "forbidden"                  | Missing session secret           | Set `AIO_ALLOW_REPORT_WITHOUT_SECRET=1` for dev                                        |
+| Embedding download slow / fails                      | First-time local model download  | Wait; set `EMBEDDING_PROVIDER=openai` + `OPENAI_API_KEY` as alternative                |
+| `aio doctor --fail` exits 1                          | One or more checks failed        | Run `aio doctor` (no `--fail`) for detailed report                                     |
+| MCP tool returns `{ ok: false, error }`              | Ingest guard, missing deps, etc. | Check `hint` and `fix` fields in the response                                          |
+| Dashboard shows no data                              | Event log empty or disabled      | Set `AIO_EVENTS=1` (default); events accumulate in `.aio/events.jsonl`                 |
 
 ## Notes
 

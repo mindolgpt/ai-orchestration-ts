@@ -38,6 +38,11 @@
     "ralph-loop",
     "wiki"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mindolgpt/ai-orchestration-ts"
+  },
+  "homepage": "https://github.com/mindolgpt/ai-orchestration-ts",
   "author": "",
   "license": "MIT",
   "dependencies": {

@@ -19,7 +19,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: https://registry.npmjs.org
+
+      - name: Clear npmrc (OIDC token conflicts with _authToken)
+        run: rm -f "$NPM_CONFIG_USERCONFIG" ~/.npmrc 2>/dev/null; true
 
       - name: Check current vs published version
         id: check

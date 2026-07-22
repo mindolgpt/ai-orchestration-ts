@@ -87,6 +87,8 @@ export function registerDagTools(
         require_approval_if_dangerous: z.boolean().optional(),
         approval_id: z.string().optional(),
         skip_approval: z.boolean().optional(),
+        ralph_max_retries: z.number().optional(),
+        ralph_verify: z.boolean().optional(),
       }),
     },
     async (args) => {

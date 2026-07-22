@@ -625,6 +625,9 @@ async function dispatchTool(
           approval_id: optStr(p.approval_id),
           skip_approval: p.skip_approval === true,
           require_approval_if_dangerous: p.require_approval_if_dangerous !== false,
+          ralph_max_retries:
+            typeof p.ralph_max_retries === 'number' ? p.ralph_max_retries : undefined,
+          ralph_verify: p.ralph_verify !== false,
         }
       )
     }

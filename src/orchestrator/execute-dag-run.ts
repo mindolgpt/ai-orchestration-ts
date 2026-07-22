@@ -6,6 +6,8 @@ import { ChildSession, spawnSession, waitForSession } from '@/mcp/tools/session-
 import { MessageInbox } from '@/mcp/inbox'
 import { getEventLog } from '@/observability/events'
 import { ApprovalGate, looksDangerous } from '@/orchestrator/approval'
+import { createRalphLoop } from '@/ralph/loop'
+import { createVerifier } from '@/ralph/verifier'
 
 export interface DagTaskInput {
   id: string
@@ -28,6 +30,8 @@ export interface ExecuteDagRunInput {
   require_approval_if_dangerous?: boolean
   approval_id?: string
   skip_approval?: boolean
+  ralph_max_retries?: number
+  ralph_verify?: boolean
 }
 
 export interface ExecuteDagRunContext {
@@ -45,6 +49,14 @@ export async function executeDagRun(
 ): Promise<Record<string, unknown>> {
   const { projectRoot, sessions, inbox, dagResults, maxSessions, approval } = ctx
   const root = projectRoot
+  const ralph = createRalphLoop({
+    maxRetries: args.ralph_max_retries ?? 3,
+    verifyEvery: 1,
+    onProgress: (msg) => {
+      void getEventLog().emit('ralph.progress', { message: msg })
+    },
+  })
+  const verifier = args.ralph_verify !== false ? createVerifier(root) : null
 
   if (args.clear_checkpoint) {
     await clearCheckpoint(args.plan_id, root)
@@ -160,26 +172,42 @@ export async function executeDagRun(
         ? `Upstream results:\n${JSON.stringify(depResults, null, 2).slice(0, 4000)}`
         : undefined
 
-      const spawned = await spawnSession(sessions, inbox, maxSessions, prompt, context, {
-        worktree: args.worktree,
-        runtime: args.runtime,
-        projectRoot: root,
-      })
-      const sessionId = typeof spawned.session_id === 'string' ? spawned.session_id : ''
-      if (spawned.error || !sessionId) {
-        const errMsg = typeof spawned.error === 'string' ? spawned.error : 'spawn failed'
-        throw new Error(errMsg)
+      const result = await ralph.run(
+        node.id,
+        async () => {
+          const spawned = await spawnSession(sessions, inbox, maxSessions, prompt, context, {
+            worktree: args.worktree,
+            runtime: args.runtime,
+            projectRoot: root,
+          })
+          const sessionId = typeof spawned.session_id === 'string' ? spawned.session_id : ''
+          if (spawned.error || !sessionId) {
+            const errMsg = typeof spawned.error === 'string' ? spawned.error : 'spawn failed'
+            throw new Error(errMsg)
+          }
+
+          const waited = await waitForSession(sessions, inbox, sessionId, node.timeout || 300_000)
+          if (waited.status !== 'completed') {
+            throw new Error(`session ${sessionId} ended with ${waited.status}`)
+          }
+
+          return {
+            session_id: sessionId,
+            summary: waited.result,
+          }
+        },
+        async () => {
+          if (!verifier) return { ok: true, detail: 'verify disabled' }
+          const report = await verifier.verifyAll()
+          return { ok: report.ok, detail: report.detail }
+        }
+      )
+
+      if (result.status !== 'success') {
+        throw new Error(result.error || `Ralph failed for ${node.id}`)
       }
 
-      const waited = await waitForSession(sessions, inbox, sessionId, node.timeout || 300_000)
-      if (waited.status !== 'completed') {
-        throw new Error(`session ${sessionId} ended with ${waited.status}`)
-      }
-
-      const payload = {
-        session_id: sessionId,
-        summary: waited.result,
-      }
+      const payload = result.output as { session_id: string; summary: unknown }
       dagResults.set(node.id, payload)
       return payload
     },
@@ -248,5 +276,6 @@ export async function executeDagRun(
         ? null
         : `.aio/checkpoints/${args.plan_id.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80)}.json`,
     nodes: nodeStatuses,
+    ralph: ralph.summary(),
   }
 }

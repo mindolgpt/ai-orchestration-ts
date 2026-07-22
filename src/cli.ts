@@ -1,7 +1,16 @@
 #!/usr/bin/env node
 
 import * as fs from 'fs/promises'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import { Command, OptionValues } from 'commander'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+const pkg: { version: string } = JSON.parse(
+  readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8')
+)
 
 interface InitOptions extends OptionValues {
   vault?: string
@@ -47,7 +56,7 @@ const program = new Command()
 program
   .name('aio')
   .description('AI Orchestration System — parallel AI orchestration CLI')
-  .version('2.14.1')
+  .version(pkg.version)
 
 program
   .command('init')

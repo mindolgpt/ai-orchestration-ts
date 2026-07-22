@@ -1,6 +1,6 @@
 {
   "name": "@mindol1004/aio-mcp",
-  "version": "2.15.0",
+  "version": "2.15.3",
   "description": "AI Orchestration System - TypeScript rewrite",
   "type": "module",
   "main": "dist/cli.js",
@@ -75,12 +75,7 @@
   "overrides": {
     "protobufjs": "^7.6.5",
     "esbuild": "^0.28.1",
-    "fast-uri": "3.1.4"
-  },
-  "allowScripts": {
-    "esbuild@0.28.1": true,
-    "faiss-node@0.5.1": true,
-    "sharp@0.32.6": true,
-    "protobufjs@7.6.5": true
+    "fast-uri": "3.1.4",
+    "node-domexception": "2.0.2"
   }
 }

@@ -1,96 +1,51 @@
 ﻿# @mindol1004/aio-mcp
 
 Parallel AI orchestration MCP server (`aio`).  
-Spawn sessions, run Task DAGs, maintain a knowledge wiki (RAG), and Branch Hunt from Cursor, Claude Code, OpenCode, and other MCP clients.
+**Node.js >= 20**
 
-**Node.js >= 20** · current version **2.15.0**
-
-### 2.15 — agent UX · token optimization · reliability
-
-| Change                                 | Detail                                                                                                      |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `query_wiki`                           | Default `response_mode: snippets` (use `full` only when needed)                                             |
-| `domain_context`                       | Unified tool replacing separate bootstrap/loop calls; `format:path` for lowest tokens                       |
-| `ingest_pipeline`                      | `lint_mode: summary` by default (`none` \| `summary` \| `full`)                                             |
-| `AIO_MCP_TOOL_SET`                     | `core` \| `wiki` \| `full` — reduce MCP schema noise (default `full`)                                       |
-| MCP resources                          | `aio://wiki/schema`, `aio://wiki/stacks/index`                                                              |
-| `recall_knowledge` / `store_knowledge` | Deprecated — use `query_wiki` / `ingest_pipeline`                                                           |
-| Tool errors                            | Unified `{ ok, error, hint, fix }` on wiki ingest failures                                                  |
-| `aio_prompt`                           | **`execute` defaults to `true`**; dry-run adds `workflow_step`; ingest guard adds `fix` hint                |
-| Natural language                       | `execute_dag` auto-plans + runs; ingest resolves `README.md`; explicit tool ids route; approval KO/EN infer |
-| Inbox                                  | Persist race fixed (`flush()`); `spawn_session.timeout_ms` wired                                            |
-| Doctor                                 | Warns on faiss mock + local embedding native deps                                                           |
-
-See **Agent token guide** below.
-
-### 2.14.1 — search index empty / `query_wiki` 0 hits
-
-| Change            | Detail                                                                                                                              |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Root cause        | `faiss-node` `add()` requires a plain `number[]`; passing `Float32Array` threw and was swallowed → wiki on disk, index stayed `[]`. |
-| `aio init`        | No longer writes an empty FAISS index (empty meta + stub caused permanent 0-hit searches).                                          |
-| `aio reindex`     | Rebuild vectors from existing `vault/wiki/**/*.md`.                                                                                 |
-| Doctor            | Warns when index files exist but doc count is **0**.                                                                                |
-| Indexing errors   | `addDocument` now throws instead of silently failing.                                                                               |
-| Brainstorm lenses | BC keywords (`Cart`, `Order`, …) merge into `detected_focus` (e.g. “Cart MVP” no longer planning-only).                             |
+→ Spawn AI sessions · run Task DAGs · maintain a knowledge wiki (RAG) · Branch Hunt  
+→ Works with Cursor, Claude Code, OpenCode, Windsurf, Cline, Codex, and any MCP client
 
 ```bash
-# Fix an existing project with wiki pages but empty search:
-aio reindex
-# then restart MCP
+npx -y @mindol1004/aio-mcp init          # create vault + search index
+npx -y @mindol1004/aio-mcp mcp-serve     # start MCP server (stdio)
 ```
 
-### 2.14 — brainstorm multi-turn · keyword routing fixes
+## Quick start (5 minutes)
 
-| Change                         | Detail                                                                                                                                                 |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Multi-turn `brainstorm_design` | Brief only after **both** `answers.phase` + `answers.scale` (or `skip_questions`). Already-answered questions are dropped from `clarifying_questions`. |
-| `aio_prompt` answers           | Top-level `answers` accepts brainstorm fields (`phase`, `consistency`, `traffic`, …) and merges into the routed tool.                                  |
-| Topic extraction               | Stripping `brainstorm` no longer leaves `_design` from `brainstorm_design`; tool ids are removed before free-text extract.                             |
-| Wiki on clarify                | Question-status responses still include wiki citations / context excerpt.                                                                              |
-| Agent continue hint            | Instructions tell the agent to **re-call with the same topic** + merged answers (not use a short reply like `design` as a new topic).                  |
+| # | Command | What it does |
+|---|---------|-------------|
+| 1 | `npx -y @mindol1004/aio-mcp init` | Create `vault/` + search index |
+| 2 | Connect MCP (see [setup by tool](#mcp-setup-by-ai-tool)) + reload |
+| 3 | `aio doctor` | Diagnose install, paths, vault |
+| 4 | `npx -y @mindol1004/aio-mcp mcp-serve` | Start MCP server |
+| 5 | In chat: "ingest this README" or "wiki lint" | Test the pipeline |
 
-```json
-// Start
-brainstorm_design({ "topic": "위키 기반 ecommerce MVP 설계" })
+## Features
 
-// Follow-up (same topic!)
-brainstorm_design({
-  "topic": "위키 기반 ecommerce MVP 설계",
-  "answers": { "phase": "design", "scale": "mvp" }
-})
+| Area | What it does | Key tools |
+|------|-------------|-----------|
+| **Wiki (RAG)** | Karpathy-style 3-layer wiki: raw → wiki → schema. FAISS or remote vector DB | `ingest_pipeline`, `query_wiki`, `lint_wiki`, `file_back` |
+| **Sessions** | Spawn isolated AI sessions for parallel research/coding | `spawn_session`, `check_inbox`, `synthesize_results` |
+| **DAG** | Auto-plan goals into task graphs, execute layers in parallel | `plan_task`, `execute_dag` |
+| **Branch Hunt** | DFS scan for issues → independent fix sessions per issue | `scan_issues`, `collect_results` |
+| **Brainstorm** | Multi-turn product design with wiki-backed option comparison | `brainstorm_design` |
+| **Domain context** | Project-aware context packing from wiki → harness → agent | `domain_context`, `bootstrap_harness` |
+| **Ingest pipeline** | Drop files → auto-ingest (raw → wiki pages → lint) | `ingest_pipeline`, `scan_raw_inbox`, `aio watch` |
+| **Wiki MR** | Propose → review → apply/reject wiki changes (diff-based) | `propose_wiki_change`, `apply_wiki_proposal` |
+| **Natural language** | 50 keyword-routed tools, KO/EN support, auto-plan on `execute_dag` | `aio_prompt` |
 
-// Or via router
-aio_prompt({
-  "message": "브레인스토밍 위키 기반 ecommerce MVP 설계",
-  "execute": true,
-  "answers": { "phase": "design", "scale": "mvp" }
-})
-```
+## Latest changes
 
-### 2.12 — wiki MR · multi-vault · raw inbox · dashboard
-
-| Feature                                          | CLI                                                                               | MCP                                             |
-| ------------------------------------------------ | --------------------------------------------------------------------------------- | ----------------------------------------------- |
-| Drop files into `vault/raw-inbox/` → auto ingest | `aio watch-raw`, `aio scan-inbox`                                                 | `scan_raw_inbox`                                |
-| Multi-vault registry                             | `aio vault list`, `aio vault register` (aliases: `vault-list` / `vault-register`) | `list_vaults`, `register_vault`                 |
-| Wiki MR (propose → approve → merge)              | —                                                                                 | `propose_wiki_change`, `apply_wiki_proposal`, … |
-| Coverage dashboard                               | `aio dashboard` (http://127.0.0.1:8920)                                           | `get_dashboard_stats`                           |
-
-**Multi-vault:** register entries in `.aio/vaults.yaml`. The active vault is chosen when the MCP/CLI process **starts** (`AIO_VAULT_NAME` → registry default → `vault/`). `register_vault` only updates YAML — restart MCP after switching names.
-
-## 5-minute onboarding (any project)
-
-Attach aio-mcp to a new repo with this sequence. In about five minutes you have MCP + vault + harness.
-
-| #   | Command                                                 | What it does                                                                                              |
-| --- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| 1   | `npx -y @mindol1004/aio-mcp init`                       | Create `vault/` + search index                                                                            |
-| 2   | `npx -y @mindol1004/aio-mcp bootstrap-harness`          | Auto-detect **one** tool (e.g. Cursor). All tools: `--targets all`                                        |
-| 3   | Connect MCP + **Reload**                                | Set `AIO_PROJECT_ROOT: "${workspaceFolder}"` in `.cursor/mcp.json` (optional: `AIO_MCP_TOOL_SET: "core"`) |
-| 4   | `npx -y @mindol1004/aio-mcp doctor`                     | Diagnose install, paths, vault, harness                                                                   |
-| 5   | `aio ingest --file README.md` or chat `ingest pipeline` | raw → wiki → lint in one pass                                                                             |
-| 6   | `aio aio-prompt "wiki lint" --execute`                  | Keyword-routing smoke test                                                                                |
+| Change | Detail |
+|--------|--------|
+| `query_wiki` | Default `response_mode: snippets` (use `full` only when needed) |
+| `domain_context` | Unified tool replacing `bootstrap_domain`/`run_domain_loop` |
+| `AIO_MCP_TOOL_SET` | `core` \| `wiki` \| `full` — reduce MCP schema noise |
+| `recall_knowledge` / `store_knowledge` | Deprecated — use `query_wiki` / `ingest_pipeline` |
+| `aio_prompt` | `execute` defaults to `true`; dry-run adds `workflow_step` |
+| Tool errors | Unified `{ ok, error, hint, fix }` on wiki ingest failures |
+| FAISS fix | `aio reindex` recovers empty index (Float32Array → number[]) |
 
 **One-shot health check:** `aio doctor` covers Node, `AIO_PROJECT_ROOT`, vault, wiki count, index, harness files, **active AI tool detection**, alerts for **unused tool files**, MCP config, git, rg, session runtime, and embeddings.
 
@@ -105,24 +60,18 @@ From MCP: `run_doctor` or `aio_prompt({ message: "run doctor", execute: true })`
 ## Install / run
 
 ```bash
-npm install
-npm run build
-
-npx aio init                 # 3-layer vault (raw/wiki/schema) + index
-npx aio bootstrap-harness    # domain harness (AGENTS.md, rules, hooks, MCP config)
-npx aio wiki-lint --fail     # wiki structure lint (CI)
-npx aio mcp-serve            # stdio MCP (Cursor, etc.)
-npx aio serve                # SSE MCP (default http://127.0.0.1:8910/sse)
-npx aio dashboard            # coverage UI (default http://127.0.0.1:8920)
-npx aio recall "inventory reservation"
-npx aio status
-npx aio example              # DAG pipeline demo
-```
-
-Published package:
-
-```bash
+# Published package (no install needed)
+npx -y @mindol1004/aio-mcp init
 npx -y @mindol1004/aio-mcp mcp-serve
+npx -y @mindol1004/aio-mcp serve          # SSE (http://127.0.0.1:8910/sse)
+npx -y @mindol1004/aio-mcp doctor
+npx -y @mindol1004/aio-mcp recall "query"
+npx -y @mindol1004/aio-mcp dashboard      # http://127.0.0.1:8920
+
+# Global install for shorter commands
+npm i -g @mindol1004/aio-mcp
+aio init && aio bootstrap-harness
+aio mcp-serve
 ```
 
 ## MCP setup by AI tool

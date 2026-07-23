@@ -1,6 +1,6 @@
 # AS-IS Codebase
 
-Scanned: 2026-07-23T03:55:20.427Z
+Scanned: 2026-07-23T04:43:20.590Z
 
 ## Detected stack
 
@@ -11,7 +11,7 @@ Scanned: 2026-07-23T03:55:20.427Z
 
 ## Languages
 
-- TypeScript — found package.json; found tsconfig.json; 169 source file(s) matched extensions (confidence 11)
+- TypeScript — found package.json; found tsconfig.json; 170 source file(s) matched extensions (confidence 11)
 - JavaScript — found package.json; 1 source file(s) matched extensions (confidence 4)
 
 ## Layout hints
@@ -25,7 +25,7 @@ Scanned: 2026-07-23T03:55:20.427Z
 
 ## Analysis summary
 
-- Files: 127, Nodes: 601, Routes: 0, Models: 0
+- Files: 128, Nodes: 608, Routes: 0, Models: 0
 
 ## Routes (sample)
 

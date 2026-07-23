@@ -5,6 +5,7 @@ import { ApprovalGate } from '@/orchestrator/approval'
 import { resolveProjectRoot } from '@/knowledge/paths'
 import { jsonResult } from '@/mcp/json-result'
 import { registerMcpTool } from '@/mcp/register-tool'
+import { markAcceptanceItems } from '@/sdd/from-wiki'
 
 export function registerSddTools(server: McpServer, approval: ApprovalGate): void {
   const root = resolveProjectRoot()
@@ -164,6 +165,43 @@ export function registerSddTools(server: McpServer, approval: ApprovalGate): voi
         approved_revision: state.design?.approvedRevision,
         error: state.error,
       })
+    }
+  )
+
+  registerMcpTool(
+    server,
+    'report_acceptance',
+    {
+      description:
+        'Mark SDD acceptance-criteria items as pass/fail so the verify ladder acceptance step can pass. Keywords: acceptance 통과 / mark AC / report acceptance.',
+      inputSchema: z.object({
+        spec_id: z.string().optional(),
+        items: z.array(
+          z.object({
+            id: z.string(),
+            status: z.enum(['pass', 'fail', 'pending']),
+            evidence: z.string().optional(),
+          })
+        ),
+      }),
+    },
+    async (args) => {
+      try {
+        const res = await markAcceptanceItems(root, args.items, { specId: args.spec_id })
+        return jsonResult({
+          ok: true,
+          file: res.file,
+          updated: res.updated,
+          unknown_ids: res.unknown,
+          all_pass: res.all_pass,
+          pending: res.items.filter((i) => i.status !== 'pass').map((i) => i.id),
+          next: res.all_pass
+            ? 'All AC pass — run_implement_loop / execute_dag acceptance step will pass'
+            : 'Satisfy remaining AC then report_acceptance again',
+        })
+      } catch (err) {
+        return jsonResult({ ok: false, error: err instanceof Error ? err.message : String(err) })
+      }
     }
   )
 

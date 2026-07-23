@@ -20,7 +20,9 @@ export async function generateTasks(
   let body = formatTasksBody(design, spec)
   try {
     const { buildTasksMarkdown } = await import('@/sdd/from-wiki')
-    body = buildTasksMarkdown(design, spec, [])
+    // Feed real requirements so tasks.md contains per-REQ rows the implement
+    // loop can pick up (previously always passed an empty array).
+    body = buildTasksMarkdown(design, spec, spec?.requirements || [])
   } catch {
     /* keep default */
   }

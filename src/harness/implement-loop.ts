@@ -2,6 +2,13 @@ import { resolveProjectRoot } from '@/knowledge/paths'
 import { getEventLog } from '@/observability/events'
 import { createRalphLoop } from '@/ralph/loop'
 import { createVerifier } from '@/ralph/verifier'
+import { buildRetryPrompt } from '@/ralph/retry-prompt'
+import {
+  ChildSession,
+  spawnSession as defaultSpawnSession,
+  waitForSession as defaultWaitForSession,
+} from '@/mcp/tools/session-tools'
+import { MessageInbox } from '@/mcp/inbox'
 import * as path from 'path'
 import * as fs from 'fs/promises'
 
@@ -11,6 +18,15 @@ export interface ImplementLoopTask {
   prompt?: string
 }
 
+/** Injected session drivers so the loop is testable without spawning real agents. */
+export interface ImplementLoopSessionDeps {
+  sessions: Map<string, ChildSession>
+  inbox: MessageInbox
+  maxSessions: number
+  spawnSession: typeof defaultSpawnSession
+  waitForSession: typeof defaultWaitForSession
+}
+
 export interface ImplementLoopOptions {
   projectRoot?: string
   tasks?: ImplementLoopTask[]
@@ -18,6 +34,14 @@ export interface ImplementLoopOptions {
   ralph_max_retries?: number
   /** When true, only plan + verify without spawning sessions */
   dry_run?: boolean
+  /** Child-agent runtime used when spawning implementation sessions. */
+  runtime?: 'opencode' | 'claude' | 'cursor' | 'codex' | 'custom'
+  /** Run each session inside an isolated git worktree. */
+  worktree?: boolean
+  /** Per-session timeout in ms (default 300000). */
+  session_timeout_ms?: number
+  /** Override session drivers (tests). When omitted, real session-tools are used. */
+  session_deps?: ImplementLoopSessionDeps
 }
 
 export interface ImplementLoopResult {
@@ -100,17 +124,53 @@ export async function runImplementLoop(
     steps: ['build', 'lint', 'typecheck', 'test', 'acceptance'],
   })
 
+  // Resolve session drivers (real by default, injectable for tests).
+  const sessionDeps: ImplementLoopSessionDeps = opts.session_deps ?? {
+    sessions: new Map<string, ChildSession>(),
+    inbox: new MessageInbox(),
+    maxSessions: 4,
+    spawnSession: defaultSpawnSession,
+    waitForSession: defaultWaitForSession,
+  }
+  const sessionTimeout = opts.session_timeout_ms ?? 300_000
+
   for (const task of tasks) {
     if (opts.dry_run) {
       results.push({ id: task.id, status: 'planned', detail: task.label })
       continue
     }
 
+    const basePrompt = task.prompt || `Implement: ${task.label}`
+
     const outcome = await ralph.run(
       task.id,
-      async () => {
-        // Session spawning is handled by execute_dag in full mode; here we verify DoD locally.
-        return { planned: task.label, prompt: task.prompt }
+      async (attemptCtx) => {
+        // Drive an actual child agent. On retries, inject the previous
+        // verify/implement failure so the agent fixes the specific problem.
+        const prompt = buildRetryPrompt(basePrompt, attemptCtx)
+        const spawned = await sessionDeps.spawnSession(
+          sessionDeps.sessions,
+          sessionDeps.inbox,
+          sessionDeps.maxSessions,
+          prompt,
+          undefined,
+          { worktree: opts.worktree, runtime: opts.runtime, projectRoot: root }
+        )
+        const sessionId = typeof spawned.session_id === 'string' ? spawned.session_id : ''
+        if (spawned.error || !sessionId) {
+          const errMsg = typeof spawned.error === 'string' ? spawned.error : 'session spawn failed'
+          throw new Error(errMsg)
+        }
+        const waited = await sessionDeps.waitForSession(
+          sessionDeps.sessions,
+          sessionDeps.inbox,
+          sessionId,
+          sessionTimeout
+        )
+        if (waited.status !== 'completed') {
+          throw new Error(`session ${sessionId} ended with ${waited.status}`)
+        }
+        return { session_id: sessionId, summary: waited.result }
       },
       async () => {
         const report = await verifier.verifyAll()

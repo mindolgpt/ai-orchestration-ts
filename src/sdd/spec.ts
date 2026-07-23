@@ -76,6 +76,8 @@ export function createSpec(input: SddSpecInput, projectRoot: string): SddSpec {
     prdPath: path.join(projectRoot, '.aio', 'sdd', id, 'prd.md'),
     storiesPath: path.join(projectRoot, '.aio', 'sdd', id, 'user_stories.md'),
     createdAt: now,
+    productContext: input.productContext,
+    requirements: input.requirements,
   }
 }
 

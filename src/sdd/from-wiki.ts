@@ -135,3 +135,85 @@ export async function writeAcceptanceJson(
   await fs.writeFile(file, JSON.stringify({ specId, items }, null, 2), 'utf-8')
   return file
 }
+
+export interface AcceptanceFile {
+  specId: string
+  items: AcceptanceItem[]
+}
+
+/** Locate a spec's acceptance.json, or the newest one if specId is omitted. */
+async function resolveAcceptancePath(projectRoot: string, specId?: string): Promise<string | null> {
+  const sddRoot = path.join(projectRoot, '.aio', 'sdd')
+  if (specId) {
+    const p = path.join(sddRoot, specId, 'acceptance.json')
+    try {
+      await fs.access(p)
+      return p
+    } catch {
+      return null
+    }
+  }
+  let entries: Array<{ name: string; isDirectory(): boolean }>
+  try {
+    entries = await fs.readdir(sddRoot, { withFileTypes: true })
+  } catch {
+    return null
+  }
+  const candidates: Array<{ f: string; t: number }> = []
+  for (const ent of entries) {
+    if (!ent.isDirectory() || ent.name === 'meta') continue
+    const f = path.join(sddRoot, ent.name, 'acceptance.json')
+    try {
+      const st = await fs.stat(f)
+      candidates.push({ f, t: st.mtimeMs })
+    } catch {
+      /* skip */
+    }
+  }
+  if (!candidates.length) return null
+  candidates.sort((a, b) => b.t - a.t)
+  return candidates[0].f
+}
+
+/**
+ * Mark acceptance-criteria items as pass/fail. This is the missing link that
+ * lets the verify ladder's `acceptance` step actually pass: an agent (or the
+ * `report_acceptance` MCP tool) records which AC ids are satisfied, with
+ * optional evidence, instead of items staying `pending` forever.
+ */
+export async function markAcceptanceItems(
+  projectRoot: string,
+  updates: Array<{ id: string; status: 'pass' | 'fail' | 'pending'; evidence?: string }>,
+  opts?: { specId?: string }
+): Promise<{
+  file: string
+  updated: string[]
+  unknown: string[]
+  all_pass: boolean
+  items: AcceptanceItem[]
+}> {
+  const file = await resolveAcceptancePath(projectRoot, opts?.specId)
+  if (!file) {
+    throw new Error(
+      'No acceptance.json found. Run bootstrap_product/SDD spec creation first (writeAcceptanceJson).'
+    )
+  }
+  const raw = await fs.readFile(file, 'utf-8')
+  const data = JSON.parse(raw) as AcceptanceFile
+  const byId = new Map(data.items.map((i) => [i.id, i]))
+  const updated: string[] = []
+  const unknown: string[] = []
+  for (const u of updates) {
+    const item = byId.get(u.id)
+    if (!item) {
+      unknown.push(u.id)
+      continue
+    }
+    item.status = u.status
+    if (u.evidence !== undefined) item.evidence = u.evidence
+    updated.push(u.id)
+  }
+  await fs.writeFile(file, JSON.stringify(data, null, 2), 'utf-8')
+  const all_pass = data.items.length > 0 && data.items.every((i) => i.status === 'pass')
+  return { file, updated, unknown, all_pass, items: data.items }
+}

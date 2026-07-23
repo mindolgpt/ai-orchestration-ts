@@ -1,4 +1,4 @@
-import { RalphResult } from '@/ralph/types'
+import { RalphAttemptContext, RalphResult } from '@/ralph/types'
 
 export interface RalphOptions {
   maxRetries: number
@@ -34,7 +34,7 @@ export class RalphLoop {
 
   async run(
     taskId: string,
-    implementFn: () => Promise<unknown>,
+    implementFn: (ctx: RalphAttemptContext) => Promise<unknown>,
     verifyFn: () => Promise<boolean | { ok: boolean; detail?: string }>
   ): Promise<RalphResult> {
     this.options.onProgress?.(`[Ralph] ${taskId} 시작`)
@@ -50,16 +50,31 @@ export class RalphLoop {
     }
 
     const startTime = Date.now()
+    // Carry the previous attempt's failure into the next implement call so the
+    // agent gets an *informed* retry (fix the specific failure) rather than a
+    // blind re-run of the same prompt.
+    let previousError: string | null = null
+    let previousFailurePhase: 'implement' | 'verify' | null = null
 
     for (let attempt = 1; attempt <= this.options.maxRetries; attempt++) {
       this.options.signal?.throwIfAborted()
       result.attempts = attempt
       this.options.onProgress?.(`[Ralph] ${taskId} - 시도 ${attempt}/${this.options.maxRetries}`)
 
+      const attemptCtx: RalphAttemptContext = {
+        attempt,
+        maxRetries: this.options.maxRetries,
+        isRetry: attempt > 1,
+        previousError,
+        previousFailurePhase,
+      }
+
       try {
-        result.output = await implementFn()
+        result.output = await implementFn(attemptCtx)
       } catch (error) {
         result.error = error instanceof Error ? error.message : String(error)
+        previousError = result.error
+        previousFailurePhase = 'implement'
         if (attempt < this.options.maxRetries) {
           this.options.onProgress?.(`[Ralph] ${taskId} 구현 실패, 재시도...`)
           await this.sleep(backoffMs(attempt, this.options.baseBackoffMs))
@@ -87,13 +102,19 @@ export class RalphLoop {
         if (ok) {
           result.status = 'success'
           result.error = null
+          previousError = null
+          previousFailurePhase = null
           this.options.onProgress?.(`[Ralph] ${taskId} 검증 통과`)
           break
         }
         result.error = detail || 'verification failed'
+        previousError = result.error
+        previousFailurePhase = 'verify'
         this.options.onProgress?.(`[Ralph] ${taskId} 검증 실패: ${result.error}`)
       } catch (error) {
         result.error = error instanceof Error ? error.message : String(error)
+        previousError = result.error
+        previousFailurePhase = 'verify'
         this.options.onProgress?.(`[Ralph] ${taskId} 검증 예외: ${result.error}`)
       }
 

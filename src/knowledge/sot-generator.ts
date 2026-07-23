@@ -1,6 +1,6 @@
 import { ObsidianVault } from '@/knowledge/vault'
 import { SemanticSearch } from '@/knowledge/search'
-import { ingestSource } from '@/knowledge/wiki-ops'
+import { ingestRaw, ingestSource } from '@/knowledge/wiki-ops'
 import { analyzeProject } from '@/static-analysis'
 
 export interface SotGenerationOptions {
@@ -12,13 +12,38 @@ export async function generateAndStoreSot(
   vault: ObsidianVault,
   search: SemanticSearch,
   opts: SotGenerationOptions
-): Promise<{ ok: boolean; pages: string[]; errors: string[] }> {
+): Promise<{ ok: boolean; pages: string[]; errors: string[]; raw_id?: string }> {
   const errors: string[] = []
   const pages: string[] = []
 
   try {
     const analysis = await analyzeProject(opts.projectRoots)
     const sotPages = buildSotPages(analysis)
+
+    // Keep an immutable raw record of the analysis so the 3-layer vault
+    // invariant holds (wiki pages reference raw/). Without this, lint_wiki
+    // flags "wiki pages exist but raw/ has no sources".
+    let rawId: string | undefined
+    try {
+      const rawBody = [
+        '# Static Analysis Snapshot (SOT source)',
+        '',
+        `Generated: ${new Date().toISOString()}`,
+        `Roots: ${opts.projectRoots.join(', ')}`,
+        '',
+        '## Raw SOT pages',
+        '',
+        ...sotPages.map((p) => `### ${p.title}\n\n${p.content}`),
+      ].join('\n')
+      const raw = await ingestRaw(vault, {
+        title: `SOT static analysis ${new Date().toISOString().slice(0, 10)}`,
+        content: rawBody,
+        source_uri: `static-analysis://${opts.projectRoots.join(',')}`,
+      })
+      rawId = raw.id
+    } catch (err) {
+      errors.push(`Failed to store raw SOT source: ${err instanceof Error ? err.message : err}`)
+    }
 
     for (const page of sotPages) {
       try {
@@ -28,6 +53,7 @@ export async function generateAndStoreSot(
           tags: ['sot', 'auto-generated', ...page.tags],
           subdir: 'sot',
           summary: page.summary,
+          raw_id: rawId,
         })
         pages.push(
           (result as { wiki_page?: string; path?: string }).wiki_page ||
@@ -49,7 +75,7 @@ export async function generateAndStoreSot(
       }
     }
 
-    return { ok: errors.length === 0, pages, errors }
+    return { ok: errors.length === 0, pages, errors, raw_id: rawId }
   } catch (err) {
     return {
       ok: false,

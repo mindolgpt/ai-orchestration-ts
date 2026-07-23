@@ -12,6 +12,9 @@ export interface SddSpec {
   createdAt: number
   approvedAt?: number
   approvedBy?: string
+  /** Product context + requirements retained for design/tasks enrichment. */
+  productContext?: string
+  requirements?: SddRequirement[]
 }
 
 export interface SddSpecInput {

@@ -8,6 +8,7 @@ import { getEventLog } from '@/observability/events'
 import { ApprovalGate, looksDangerous } from '@/orchestrator/approval'
 import { createRalphLoop } from '@/ralph/loop'
 import { createVerifier } from '@/ralph/verifier'
+import { buildRetryPrompt } from '@/ralph/retry-prompt'
 
 export interface DagTaskInput {
   id: string
@@ -174,8 +175,11 @@ export async function executeDagRun(
 
       const result = await ralph.run(
         node.id,
-        async () => {
-          const spawned = await spawnSession(sessions, inbox, maxSessions, prompt, context, {
+        async (attemptCtx) => {
+          // On retries, inject the previous verify/implement failure so the
+          // child agent fixes the specific problem instead of blind re-running.
+          const attemptPrompt = buildRetryPrompt(prompt, attemptCtx)
+          const spawned = await spawnSession(sessions, inbox, maxSessions, attemptPrompt, context, {
             worktree: args.worktree,
             runtime: args.runtime,
             projectRoot: root,

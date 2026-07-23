@@ -227,7 +227,7 @@ export async function bootstrapProduct(
   if (phases.includes('sdd') && state.phase_status.sdd !== 'done') {
     const approval = new ApprovalGate(root)
     await approval.load()
-    const pipeline = new SddPipeline(root, approval)
+    const pipeline = new SddPipeline(root, approval, { vault, search: getSearch() })
     const finalReqs = (opts.requirements || []).map((r) => ({
       id: r.id,
       priority: r.priority,
@@ -263,6 +263,14 @@ export async function bootstrapProduct(
       await store.save(created.spec)
       const design = await pipeline.createDesign(created.spec.id)
       state.sdd = { ...state.sdd, design_id: design.design?.id }
+      // Auto-approve the design and generate tasks.md so the implement phase
+      // runs against real SDD tasks instead of a generic fallback slice.
+      if (design.design?.id) {
+        const tasksState = await pipeline.autoApproveDesignAndGenerateTasks(design.design.id)
+        if (tasksState.tasks?.tasksPath) {
+          state.files_written?.push(tasksState.tasks.tasksPath)
+        }
+      }
       state.phase_status.sdd = 'done'
     } else {
       state.phase_status.sdd = 'blocked'
@@ -284,13 +292,20 @@ export async function bootstrapProduct(
   // Unblock sdd if previously blocked but now approved externally
   if (state.phase_status.sdd === 'blocked' && state.sdd?.spec_id) {
     const approval = new ApprovalGate(root)
-    const pipeline = new SddPipeline(root, approval)
+    const pipeline = new SddPipeline(root, approval, { vault, search: getSearch() })
     const st = await pipeline.getState()
     const match = st.find((s) => s.spec?.id === state.sdd?.spec_id)
     if (match?.spec?.status === 'approved') {
       if (!state.sdd.design_id) {
         const design = await pipeline.createDesign(match.spec.id)
         state.sdd.design_id = design.design?.id
+        // Externally-approved spec → also produce approved design + tasks.md.
+        if (design.design?.id) {
+          const tasksState = await pipeline.autoApproveDesignAndGenerateTasks(design.design.id)
+          if (tasksState.tasks?.tasksPath) {
+            state.files_written?.push(tasksState.tasks.tasksPath)
+          }
+        }
       }
       state.phase_status.sdd = 'done'
       state.blocked_reason = undefined
@@ -309,7 +324,10 @@ export async function bootstrapProduct(
 
   // --- interview (includes project scan) ---
   if (phases.includes('interview') && state.phase_status.interview !== 'done') {
-    const scan = await scanProject(root)
+    // Ingest AS-IS knowledge into the 3-layer vault here (vault phase already
+    // ran, so raw/wiki/index/vector are wired). Best-effort; scan still returns
+    // on embedder failure.
+    const scan = await scanProject(root, { ingestToVault: true })
     state.project_scan_path = scan.scan_path
     const interview = await runHarnessInterview({
       projectRoot: root,

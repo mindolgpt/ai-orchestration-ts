@@ -275,7 +275,20 @@ function languageForStack(side: 'frontend' | 'backend', stackId?: string): Langu
   return side === 'frontend' ? 'typescript' : undefined
 }
 
-export async function scanProject(projectRoot?: string): Promise<ProjectScanResult> {
+export interface ScanProjectOptions {
+  /**
+   * When true, ingest the AS-IS markdown into the 3-layer vault (raw/ + wiki/ +
+   * index + log + vector index) via the canonical pipeline. Defaults to false
+   * because embedder init is expensive and has side effects; interview prefill
+   * scans don't need it (the bootstrap_product wiki phase drives ingestion).
+   */
+  ingestToVault?: boolean
+}
+
+export async function scanProject(
+  projectRoot?: string,
+  options?: ScanProjectOptions
+): Promise<ProjectScanResult> {
   const root = path.resolve(projectRoot || resolveProjectRoot())
   const aioDir = path.join(root, '.aio')
   const scanPath = path.join(aioDir, 'project-scan.json')
@@ -467,14 +480,64 @@ export async function scanProject(projectRoot?: string): Promise<ProjectScanResu
   await fs.mkdir(aioDir, { recursive: true })
   await fs.writeFile(scanPath, JSON.stringify(result, null, 2), 'utf-8')
 
-  // Seed AS-IS wiki page when vault exists
-  const asIsPath = path.join(root, 'vault', 'wiki', 'as-is-codebase.md')
+  // Seed AS-IS knowledge into the 3-layer vault (raw/ + wiki/ + index + log +
+  // vector index) via the canonical ingest pipeline when a vault exists.
+  // Falls back to a direct wiki file write if the vault/search stack is
+  // unavailable (e.g. embedding backend not configured) so scans never fail.
+  const vaultRoot = path.join(root, 'vault')
+  const asIsPath = path.join(vaultRoot, 'wiki', 'as-is-codebase.md')
+  let ingested = false
+  if (options?.ingestToVault && (await exists(vaultRoot))) {
+    try {
+      const [
+        { ObsidianVault },
+        { SemanticSearch },
+        { createEmbedder },
+        { resolveIndexDir },
+        { ingestPipeline },
+      ] = await Promise.all([
+        import('@/knowledge/vault'),
+        import('@/knowledge/search'),
+        import('@/knowledge/embedder'),
+        import('@/knowledge/paths'),
+        import('@/knowledge/wiki-ingest-pipeline'),
+      ])
+      const vault = new ObsidianVault(vaultRoot)
+      await vault.initialize()
+      const search = new SemanticSearch(createEmbedder(), {
+        indexDir: resolveIndexDir(vault.rootPath),
+        vaultRoot: vault.rootPath,
+      })
+      await ingestPipeline(vault, search, {
+        title: 'AS-IS Codebase',
+        content: as_is_markdown,
+        source_uri: scanPath,
+        concepts: [
+          {
+            title: 'AS-IS Codebase',
+            content: as_is_markdown,
+            subdir: 'architecture',
+            tags: ['as-is', 'scan'],
+            summary: `Scanned ${stack.frontend || 'unknown'} / ${stack.backend || 'unknown'} stack`,
+          },
+        ],
+        lint_mode: 'none',
+      })
+      ingested = true
+    } catch {
+      /* fall back to direct write below */
+    }
+  }
+
+  // Always keep the canonical AS-IS path readable (SDD createDesign reads it
+  // directly as a fallback), whether or not ingest succeeded.
   try {
     await fs.mkdir(path.dirname(asIsPath), { recursive: true })
     await fs.writeFile(asIsPath, as_is_markdown, 'utf-8')
   } catch {
     /* vault may not exist yet */
   }
+  void ingested
 
   return result
 }

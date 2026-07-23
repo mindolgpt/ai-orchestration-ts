@@ -654,11 +654,14 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
     'run_implement_loop',
     {
       description:
-        'DoD implement loop: Ralph retries with build/lint/typecheck/test/acceptance. Keywords: 구현 루프 / implement loop / run until done.',
+        'DoD implement loop: spawns child agent sessions per SDD task and Ralph-retries with informed feedback until build/lint/typecheck/test/acceptance pass. Keywords: 구현 루프 / implement loop / run until done / 완벽할 때까지.',
       inputSchema: z.object({
         spec_id: z.string().optional(),
         ralph_max_retries: z.number().optional(),
         dry_run: z.boolean().optional(),
+        runtime: z.enum(['opencode', 'claude', 'cursor', 'codex', 'custom']).optional(),
+        worktree: z.boolean().optional(),
+        session_timeout_ms: z.number().optional(),
       }),
     },
     async (args) => {
@@ -668,6 +671,9 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
         spec_id: args.spec_id,
         ralph_max_retries: args.ralph_max_retries,
         dry_run: args.dry_run,
+        runtime: args.runtime,
+        worktree: args.worktree,
+        session_timeout_ms: args.session_timeout_ms,
       })
       return json(result)
     }

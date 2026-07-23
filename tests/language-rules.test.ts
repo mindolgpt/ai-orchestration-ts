@@ -143,6 +143,7 @@ describe('bootstrap-interview', () => {
     const interview = await runHarnessInterview({
       answers,
       nonInteractive: true,
+      skipScan: true,
     })
     expect(interview.status).toBe('complete')
     expect(interview.answers?.languages).toContain('go')

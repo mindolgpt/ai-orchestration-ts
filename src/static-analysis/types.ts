@@ -1,5 +1,14 @@
 export interface CodeFile {
   path: string
+  /**
+   * Original source text of the file. Preserved by the parser so that
+   * extractor plugins (routes, models, concepts) can run framework/ORM
+   * specific regex passes without re-reading from disk. May be empty for
+   * synthetic files.
+   */
+  rawContent?: string
+  /** Language plugin id that produced this CodeFile (e.g. 'typescript'). */
+  language?: string
   imports: CodeImport[]
   exports: CodeExport[]
   classes: CodeClass[]
@@ -113,7 +122,13 @@ export interface ModelInfo {
   tableName?: string
   fields: ModelField[]
   relations: ModelRelation[]
-  orm: 'prisma' | 'typeorm' | 'sequelize' | 'mongoose' | 'unknown'
+  /**
+   * ORM/ODM that produced this model. Open-ended string so plugins can register
+   * new ORMs (jpa, sqlalchemy, gorm, django-orm, diesel, ...) without changing
+   * the type. Legacy values ('prisma' | 'typeorm' | 'sequelize' | 'mongoose'
+   * | 'unknown') remain valid.
+   */
+  orm: string
 }
 
 export interface ModelField {
@@ -131,4 +146,22 @@ export interface ModelRelation {
   target: string
   through?: string
   field: string
+}
+
+/**
+ * A domain concept extracted from source. ConceptExtractor plugins produce
+ * these to enrich the SOT wiki beyond routes/models (use cases, events,
+ * policies, aggregates, services, etc.).
+ */
+export interface ConceptInfo {
+  /** Plugin kind: 'usecase' | 'event' | 'policy' | 'aggregate' | 'service' ... */
+  kind: string
+  name: string
+  file?: string
+  language?: string
+  /** Short human-readable summary shown in the SOT wiki. */
+  summary?: string
+  /** Related symbols (class/function names) for cross-linking. */
+  related?: string[]
+  metadata?: Record<string, unknown>
 }

@@ -2,10 +2,13 @@ import { ObsidianVault } from '@/knowledge/vault'
 import { SemanticSearch } from '@/knowledge/search'
 import { ingestRaw, ingestSource } from '@/knowledge/wiki-ops'
 import { analyzeProject } from '@/static-analysis'
+import type { ConceptInfo, ModelInfo, RouteInfo } from '@/static-analysis'
 
 export interface SotGenerationOptions {
   projectRoots: string[]
   updateIndex?: boolean
+  /** Optional language filter forwarded to analyzeProject. */
+  languages?: string[]
 }
 
 export async function generateAndStoreSot(
@@ -17,7 +20,9 @@ export async function generateAndStoreSot(
   const pages: string[] = []
 
   try {
-    const analysis = await analyzeProject(opts.projectRoots)
+    const analysis = await analyzeProject(opts.projectRoots, {
+      languages: opts.languages,
+    })
     const sotPages = buildSotPages(analysis)
 
     // Keep an immutable raw record of the analysis so the 3-layer vault
@@ -30,6 +35,7 @@ export async function generateAndStoreSot(
         '',
         `Generated: ${new Date().toISOString()}`,
         `Roots: ${opts.projectRoots.join(', ')}`,
+        `Languages: ${analysis.summary.languages.join(', ') || '(none detected)'}`,
         '',
         '## Raw SOT pages',
         '',
@@ -69,7 +75,7 @@ export async function generateAndStoreSot(
 
     if (opts.updateIndex !== false) {
       try {
-        await updateSotIndex(vault, search, sotPages)
+        await updateSotIndex(vault, search, sotPages, analysis.summary.languages)
       } catch (err) {
         errors.push(`Failed to update index: ${err instanceof Error ? err.message : String(err)}`)
       }
@@ -92,17 +98,27 @@ interface SotPage {
   summary: string
 }
 
-function buildSotPages(analysis: {
+interface SotAnalysis {
   summary: {
     totalFiles: number
     totalNodes: number
     totalEdges: number
     totalRoutes: number
     totalModels: number
+    totalConcepts: number
+    languages: string[]
   }
-  routes: { method: string; path: string }[]
-  models: { name: string; orm: string; tableName?: string; fields: unknown[] }[]
-}): SotPage[] {
+  routes: RouteInfo[]
+  models: ModelInfo[]
+  concepts: ConceptInfo[]
+}
+
+function buildSotPages(analysis: SotAnalysis): SotPage[] {
+  const languages = analysis.summary.languages
+  const languageSection = languages.length
+    ? `\n\n## Languages\n\n${languages.map((l) => `- \`${l}\``).join('\n')}`
+    : ''
+
   return [
     {
       title: 'SOT: Architecture Overview',
@@ -110,6 +126,7 @@ function buildSotPages(analysis: {
         `# Architecture Overview`,
         ``,
         `> Auto-generated from static analysis. Last updated: ${new Date().toISOString()}`,
+        languageSection,
         ``,
         `## Summary`,
         ``,
@@ -118,17 +135,19 @@ function buildSotPages(analysis: {
         `- **Code graph edges**: ${analysis.summary.totalEdges}`,
         `- **API routes detected**: ${analysis.summary.totalRoutes}`,
         `- **Data models detected**: ${analysis.summary.totalModels}`,
+        `- **Domain concepts detected**: ${analysis.summary.totalConcepts}`,
         ``,
         `## API Endpoints`,
         ``,
-        ...analysis.routes.map((r) => `- \`${r.method} ${r.path}\``),
+        ...summarizeRoutes(analysis.routes),
         ``,
         `## Data Models`,
         ``,
-        ...analysis.models.map(
-          (m) =>
-            `- **${m.name}** (${m.orm}, table: \`${m.tableName || 'unknown'}\`, ${m.fields.length} fields)`
-        ),
+        ...summarizeModels(analysis.models),
+        ``,
+        `## Domain Concepts`,
+        ``,
+        ...summarizeConcepts(analysis.concepts),
         ``,
         `## Usage`,
         ``,
@@ -136,7 +155,7 @@ function buildSotPages(analysis: {
         `Run \`query_code_graph\` for detailed code-level queries.`,
       ].join('\n'),
       tags: ['architecture', 'overview'],
-      summary: `System architecture with ${analysis.summary.totalRoutes} routes and ${analysis.summary.totalModels} models`,
+      summary: `System architecture with ${analysis.summary.totalRoutes} routes, ${analysis.summary.totalModels} models, ${analysis.summary.totalConcepts} concepts`,
     },
     {
       title: 'SOT: API Reference',
@@ -144,10 +163,18 @@ function buildSotPages(analysis: {
         `# API Reference`,
         ``,
         `> Auto-generated from static analysis.`,
+        languageSection,
         ``,
         `## Endpoints`,
         ``,
-        ...analysis.routes.map((r) => `### \`${r.method} ${r.path}\``),
+        ...(analysis.routes.length
+          ? analysis.routes.map(
+              (r) =>
+                `### \`${r.method} ${r.path}\`` +
+                (r.controller ? `\n\n- Controller: \`${r.controller}\`` : '') +
+                `\n- Handler: \`${r.handlerFile}\``
+            )
+          : ['- (none detected)']),
         ``,
         `Total: ${analysis.routes.length} endpoints`,
       ].join('\n'),
@@ -160,27 +187,110 @@ function buildSotPages(analysis: {
         `# Data Layer`,
         ``,
         `> Auto-generated from static analysis.`,
+        languageSection,
         ``,
-        ...analysis.models.map((m) =>
-          [
-            `## ${m.name}`,
-            ``,
-            `- **ORM**: ${m.orm}`,
-            `- **Table**: \`${m.tableName || 'unknown'}\``,
-            `- **Fields**: ${m.fields.length}`,
-          ].join('\n')
-        ),
+        ...(analysis.models.length
+          ? analysis.models.map((m) =>
+              [
+                `## ${m.name}`,
+                ``,
+                `- **ORM**: \`${m.orm}\``,
+                `- **Table**: \`${m.tableName || 'unknown'}\``,
+                `- **Fields**: ${m.fields.length}`,
+                ...(m.fields.length
+                  ? [
+                      '',
+                      '### Fields',
+                      '',
+                      ...m.fields
+                        .slice(0, 20)
+                        .map(
+                          (f) =>
+                            `- \`${f.name}\` (\`${f.type}\`${f.isRequired ? '' : ', optional'}${f.isId ? ', PK' : ''}${f.isUnique ? ', unique' : ''})`
+                        ),
+                    ]
+                  : []),
+                ...(m.relations.length
+                  ? [
+                      '',
+                      '### Relations',
+                      '',
+                      ...m.relations.map(
+                        (r) =>
+                          `- \`${r.kind}\` → \`${r.target}\`${r.field ? ` via \`${r.field}\`` : ''}`
+                      ),
+                    ]
+                  : []),
+              ].join('\n')
+            )
+          : ['- (no models detected)']),
       ].join('\n\n'),
       tags: ['data', 'models'],
       summary: `${analysis.models.length} data models across ${new Set(analysis.models.map((m) => m.orm)).size} ORM types`,
     },
+    {
+      title: 'SOT: Domain Concepts',
+      content: [
+        `# Domain Concepts`,
+        ``,
+        `> Auto-generated from static analysis. Use cases, events, policies and rules detected from source.`,
+        languageSection,
+        ``,
+        ...summarizeConceptsByKind(analysis.concepts),
+      ].join('\n'),
+      tags: ['domain', 'concepts'],
+      summary: `${analysis.concepts.length} domain concepts`,
+    },
   ]
+}
+
+function summarizeRoutes(routes: RouteInfo[]): string[] {
+  if (!routes.length) return ['- (none detected)']
+  return routes.map(
+    (r) =>
+      `- \`${r.method} ${r.path}\`${r.controller ? ` — \`${r.controller}\`` : ''} (\`${r.handlerFile}\`)`
+  )
+}
+
+function summarizeModels(models: ModelInfo[]): string[] {
+  if (!models.length) return ['- (none detected)']
+  return models.map(
+    (m) =>
+      `- **${m.name}** (\`${m.orm}\`, table: \`${m.tableName || 'unknown'}\`, ${m.fields.length} fields, ${m.relations.length} relations)`
+  )
+}
+
+function summarizeConcepts(concepts: ConceptInfo[]): string[] {
+  if (!concepts.length) return ['- (none detected)']
+  return concepts.map((c) => `- \`${c.name}\` (${c.kind})${c.file ? ` — \`${c.file}\`` : ''}`)
+}
+
+function summarizeConceptsByKind(concepts: ConceptInfo[]): string[] {
+  if (!concepts.length) return ['- (none detected)']
+  const byKind = new Map<string, ConceptInfo[]>()
+  for (const c of concepts) {
+    const arr = byKind.get(c.kind) ?? []
+    arr.push(c)
+    byKind.set(c.kind, arr)
+  }
+  const lines: string[] = []
+  for (const [kind, items] of Array.from(byKind.entries())) {
+    lines.push(`### ${kind} (${items.length})`, '')
+    for (const c of items) {
+      lines.push(
+        `- \`${c.name}\`${c.file ? ` — \`${c.file}\`` : ''}${c.summary ? ` — ${c.summary}` : ''}`
+      )
+    }
+    lines.push('')
+  }
+  return lines
 }
 
 async function updateSotIndex(
   vault: ObsidianVault,
   search: SemanticSearch,
-  pages: SotPage[]
+  pages: SotPage[],
+  languages: string[]
 ): Promise<void> {
   // Do not overwrite wiki/index.md — ingestSource already upserts catalog entries.
   // Keep a dedicated SOT catalog for agents (low-token browse).
@@ -189,6 +299,7 @@ async function updateSotIndex(
     '',
     '> Source of Truth pages from static analysis. Refresh with `generate_sot`.',
     '',
+    ...(languages.length ? [`## Languages`, '', ...languages.map((l) => `- \`${l}\``), ''] : []),
     ...pages.map((p) => {
       const slug = p.title
         .toLowerCase()

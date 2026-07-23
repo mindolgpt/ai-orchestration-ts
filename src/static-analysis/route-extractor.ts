@@ -1,63 +1,40 @@
-import { CodeFile, RouteInfo } from './types'
+import { RouteExtractorRegistry } from './plugin/registry'
+import type { AnalysisPluginOptions } from './plugin/types'
+import type { CodeFile, RouteInfo } from './types'
 
-const ROUTE_DECORATOR_PATTERN =
-  /@(Get|Post|Put|Patch|Delete|Head|Options|Route)\s*\(['"`]([^'"`]+)['"`]\)/g
-const EXPRESS_PATTERN =
-  /(?:router|app)\.(get|post|put|patch|delete|head|options)\s*\(\s*['"`]([^'"`]+)['"`]/gi
-const FASTIFY_PATTERN =
-  /(?:app|server|fastify)\.(get|post|put|patch|delete|head|options)\s*\(\s*['"`]([^'"`]+)['"`]/gi
-
-export function parseRoutes(files: CodeFile[]): RouteInfo[] {
+/**
+ * Registry-based route extractor dispatcher.
+ *
+ * Replaces the legacy TS-only extractor (which had a `pattern.exec('')` bug
+ * that matched nothing for Express/Fastify). Routes are extracted by every
+ * registered {@link RouteExtractorPlugin} applicable to the languages present
+ * in `files`, then de-duplicated by `(method, path, handlerFile)` so
+ * overlapping framework matchers (e.g. Gin/Echo share the same call shape)
+ * don't produce duplicate entries.
+ *
+ * Public API (`parseRoutes`) is preserved for graph-builder / index callers.
+ */
+export function parseRoutes(files: CodeFile[], opts?: AnalysisPluginOptions): RouteInfo[] {
+  const languageIds = collectLanguages(files, opts?.languages)
+  const extractors = RouteExtractorRegistry.forLanguages(languageIds)
+  const seen = new Set<string>()
   const routes: RouteInfo[] = []
-
-  for (const file of files) {
-    try {
-      const decoratorRoutes = extractDecoratorRoutes(
-        file.path,
-        file.decorators?.map?.((d) => `${d.name}(${d.arguments || ''})`).join('\n') || ''
-      )
-      routes.push(...decoratorRoutes)
-
-      const expressRoutes = extractPatternRoutes(file.path, EXPRESS_PATTERN)
-      routes.push(...expressRoutes)
-
-      const fastifyRoutes = extractPatternRoutes(file.path, FASTIFY_PATTERN)
-      routes.push(...fastifyRoutes)
-    } catch {
-      // skip parse errors
+  for (const extractor of extractors) {
+    const extracted = extractor.extract(files)
+    for (const r of extracted) {
+      const key = `${r.method} ${r.path} @ ${r.handlerFile}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      routes.push(r)
     }
   }
   return routes
 }
 
-function extractDecoratorRoutes(filePath: string, decoratorsText: string): RouteInfo[] {
-  const routes: RouteInfo[] = []
-  let match: RegExpExecArray | null
-  ROUTE_DECORATOR_PATTERN.lastIndex = 0
-  while ((match = ROUTE_DECORATOR_PATTERN.exec(decoratorsText)) !== null) {
-    routes.push({
-      method: match[1].toUpperCase() as RouteInfo['method'],
-      path: match[2],
-      handler: filePath,
-      handlerFile: filePath,
-      middlewares: [],
-    })
-  }
-  return routes
-}
-
-function extractPatternRoutes(filePath: string, pattern: RegExp): RouteInfo[] {
-  const routes: RouteInfo[] = []
-  let match: RegExpExecArray | null
-  pattern.lastIndex = 0
-  while ((match = pattern.exec('')) !== null) {
-    routes.push({
-      method: match[1].toUpperCase() as RouteInfo['method'],
-      path: match[2],
-      handler: filePath,
-      handlerFile: filePath,
-      middlewares: [],
-    })
-  }
-  return routes
+function collectLanguages(files: CodeFile[], filter?: string[]): string[] {
+  const present = new Set<string>()
+  for (const f of files) if (f.language) present.add(f.language)
+  if (!filter || filter.length === 0) return Array.from(present)
+  const filterSet = new Set(filter)
+  return Array.from(present).filter((l) => filterSet.has(l))
 }

@@ -1,55 +1,73 @@
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import {
-  CodeFile,
-  CodeImport,
-  CodeExport,
-  CodeClass,
-  CodeFunction,
-  CodeInterface,
-  CodeDecorator,
-  CodeMethod,
-} from './types'
+import { LanguageRegistry } from './plugin/registry'
+import type { AnalysisPluginOptions, LanguagePlugin } from './plugin/types'
+import type { CodeFile } from './types'
+import { parseWithTreeSitter } from './plugin/tree-sitter-adapter'
 
-export interface ParserOptions {
-  include?: string[]
-  exclude?: string[]
-}
+/**
+ * @deprecated Use {@link AnalysisPluginOptions} from `./plugin/types`. Kept
+ * as an alias so external callers importing `ParserOptions` keep compiling.
+ */
+export type ParserOptions = AnalysisPluginOptions
 
-const DEFAULT_EXCLUDE = ['node_modules', 'dist', 'build', '.git', '.aio', 'coverage']
-const SOURCE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx'])
+const DEFAULT_EXCLUDE = [
+  'node_modules',
+  'dist',
+  'build',
+  '.git',
+  '.aio',
+  'coverage',
+  'target',
+  'venv',
+  '__pycache__',
+  '.venv',
+]
 
-const IMPORT_PATTERN =
-  /^import\s+(?:(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)\s*,?\s*)?(?:\{[^}]*\})?\s*from\s+['"]([^'"]+)['"]/gm
-const EXPORT_PATTERN =
-  /^export\s+(?:(?:default|class|function|interface|type|const|let|var)\s+)?(\w+)/gm
-const CLASS_PATTERN =
-  /^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([^{]+))?/gm
-const FUNCTION_PATTERN = /^(?:export\s+)?(?:async\s+)?function\s+(?:\*\s+)?(\w+)/gm
-const INTERFACE_PATTERN = /^(?:export\s+)?interface\s+(\w+)/gm
-const DECORATOR_PATTERN = /@(\w+)(?:\(([^)]*)\))?/g
-
+/**
+ * Registry-based source file parser.
+ *
+ * Replaces the legacy TS-only parser. Files are dispatched to the language
+ * plugin that owns their extension (see {@link LanguageRegistry}). Unknown
+ * extensions are skipped silently — the analysis layer no longer assumes a
+ * single language.
+ *
+ * Public API (`parseSourceFiles`, `parseFile`) is preserved so existing
+ * callers (graph-builder, index) keep working.
+ */
 export async function parseSourceFiles(
   roots: string[],
-  opts?: ParserOptions
+  opts?: AnalysisPluginOptions
 ): Promise<Map<string, CodeFile>> {
-  const exclude = new Set(opts?.exclude ?? DEFAULT_EXCLUDE)
+  const exclude = new Set([...DEFAULT_EXCLUDE, ...(opts?.exclude ?? [])])
+  const plugins = LanguageRegistry.filter(opts?.languages)
+  if (plugins.length === 0) {
+    // No language filter and nothing registered: return empty (rather than
+    // throwing) so analysis degrades gracefully in minimal installs.
+    return new Map()
+  }
   const result = new Map<string, CodeFile>()
 
   for (const root of roots) {
     const absRoot = path.resolve(root)
-    const files = await collectSourceFiles(absRoot, exclude)
+    const files = await collectSourceFiles(absRoot, exclude, plugins)
     for (const file of files) {
-      const parsed = await parseFile(file)
+      const parsed = await parseFile(file, plugins, opts?.parseMode)
       if (parsed) result.set(file, parsed)
     }
   }
   return result
 }
 
-async function collectSourceFiles(root: string, exclude: Set<string>): Promise<string[]> {
+async function collectSourceFiles(
+  root: string,
+  exclude: Set<string>,
+  plugins: LanguagePlugin[]
+): Promise<string[]> {
   const results: string[] = []
-  await collectDir(root, '', exclude, results)
+  const extSet = new Set<string>()
+  for (const p of plugins) for (const ext of p.extensions) extSet.add(ext.toLowerCase())
+  await collectDir(root, '', exclude, extSet, results)
   return results
 }
 
@@ -57,159 +75,51 @@ async function collectDir(
   root: string,
   relative: string,
   exclude: Set<string>,
+  extSet: Set<string>,
   results: string[]
 ): Promise<void> {
+  let entries: import('fs').Dirent[]
   try {
-    const entries = await fs.readdir(path.join(root, relative), { withFileTypes: true })
-    for (const entry of entries) {
-      if (exclude.has(entry.name) || entry.name.startsWith('.')) continue
-      const relPath = relative ? `${relative}/${entry.name}` : entry.name
-      if (entry.isDirectory()) {
-        await collectDir(root, relPath, exclude, results)
-      } else if (entry.isFile()) {
-        const ext = path.extname(entry.name).toLowerCase()
-        if (SOURCE_EXT.has(ext) && !entry.name.endsWith('.d.ts')) {
-          results.push(path.join(root, relPath))
-        }
+    entries = await fs.readdir(path.join(root, relative), { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    if (exclude.has(entry.name) || entry.name.startsWith('.')) continue
+    const relPath = relative ? `${relative}/${entry.name}` : entry.name
+    if (entry.isDirectory()) {
+      await collectDir(root, relPath, exclude, extSet, results)
+    } else if (entry.isFile()) {
+      const ext = path.extname(entry.name).toLowerCase()
+      if (extSet.has(ext) && !entry.name.endsWith('.d.ts')) {
+        results.push(path.join(root, relPath))
       }
     }
-  } catch {
-    /* skip unreadable */
   }
 }
 
-export async function parseFile(filePath: string): Promise<CodeFile | null> {
+export async function parseFile(
+  filePath: string,
+  plugins?: LanguagePlugin[],
+  parseMode?: 'regex' | 'tree-sitter'
+): Promise<CodeFile | null> {
+  const ext = path.extname(filePath).toLowerCase()
+  const plugin =
+    plugins?.find((p) => p.extensions.some((e) => e.toLowerCase() === ext)) ??
+    LanguageRegistry.byExtension(ext)
+  if (!plugin) return null
   try {
     const content = await fs.readFile(filePath, 'utf-8')
-    return {
-      path: filePath,
-      imports: parseImports(content),
-      exports: parseExports(content),
-      classes: parseClasses(content),
-      functions: parseFunctions(content),
-      interfaces: parseInterfaces(content),
-      decorators: parseDecorators(content),
+    // Tree-sitter is optional. When requested and available we try an AST
+    // parse; on any failure (missing peer dep, missing grammar, parse error)
+    // we transparently fall back to the plugin's regex parser so analysis
+    // never hard-fails because of a missing native binding.
+    if (parseMode === 'tree-sitter') {
+      const tsResult = await parseWithTreeSitter(content, filePath, plugin.id)
+      if (tsResult) return tsResult
     }
+    return plugin.parse(content, filePath)
   } catch {
     return null
   }
-}
-
-export function parseImports(content: string): CodeImport[] {
-  const imports: CodeImport[] = []
-  let match: RegExpExecArray | null
-  IMPORT_PATTERN.lastIndex = 0
-  while ((match = IMPORT_PATTERN.exec(content)) !== null) {
-    imports.push({
-      source: match[1],
-      specifiers: [],
-      isDefault: false,
-      isType: false,
-    })
-  }
-  return imports
-}
-
-export function parseExports(content: string): CodeExport[] {
-  const exports: CodeExport[] = []
-  let match: RegExpExecArray | null
-  EXPORT_PATTERN.lastIndex = 0
-  while ((match = EXPORT_PATTERN.exec(content)) !== null) {
-    const kw = match[0]
-    const name = match[1]
-    let kind: CodeExport['kind'] = 'variable'
-    if (kw.includes('class')) kind = 'class'
-    else if (kw.includes('function')) kind = 'function'
-    else if (kw.includes('interface')) kind = 'interface'
-    else if (kw.includes('type')) kind = 'type'
-    else if (kw.includes('default')) kind = 'default'
-    exports.push({ name, kind })
-  }
-  return exports
-}
-
-export function parseClasses(content: string): CodeClass[] {
-  const classes: CodeClass[] = []
-  let match: RegExpExecArray | null
-  CLASS_PATTERN.lastIndex = 0
-  while ((match = CLASS_PATTERN.exec(content)) !== null) {
-    classes.push({
-      name: match[1],
-      methods: parseMethods(content),
-      properties: [],
-      decorators: [],
-      extends: match[2] || undefined,
-      implements: match[3] ? match[3].split(',').map((s) => s.trim()) : [],
-    })
-  }
-  return classes
-}
-
-export function parseMethods(content: string): CodeMethod[] {
-  const methods: CodeMethod[] = []
-  const METHOD_PATTERN =
-    /^\s+(?:public|private|protected|static|async|\s)*(?:get\s+|set\s+)?(\w+)\s*\(([^)]*)\)\s*(?::\s*(\w+))?/gm
-  let match: RegExpExecArray | null
-  while ((match = METHOD_PATTERN.exec(content)) !== null) {
-    const line = match[0]
-    methods.push({
-      name: match[1],
-      params: match[2]
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
-      returnType: match[3],
-      visibility: line.includes('private')
-        ? 'private'
-        : line.includes('protected')
-          ? 'protected'
-          : 'public',
-      isAsync: line.includes('async'),
-      isStatic: line.includes('static'),
-      decorators: [],
-    })
-  }
-  return methods
-}
-
-export function parseFunctions(content: string): CodeFunction[] {
-  const functions: CodeFunction[] = []
-  let match: RegExpExecArray | null
-  FUNCTION_PATTERN.lastIndex = 0
-  while ((match = FUNCTION_PATTERN.exec(content)) !== null) {
-    functions.push({
-      name: match[1],
-      params: [],
-      isAsync: match[0].includes('async'),
-      isExported: match[0].startsWith('export'),
-    })
-  }
-  return functions
-}
-
-export function parseInterfaces(content: string): CodeInterface[] {
-  const interfaces: CodeInterface[] = []
-  let match: RegExpExecArray | null
-  INTERFACE_PATTERN.lastIndex = 0
-  while ((match = INTERFACE_PATTERN.exec(content)) !== null) {
-    interfaces.push({
-      name: match[1],
-      properties: [],
-      extends: [],
-    })
-  }
-  return interfaces
-}
-
-export function parseDecorators(content: string): CodeDecorator[] {
-  const decorators: CodeDecorator[] = []
-  let match: RegExpExecArray | null
-  DECORATOR_PATTERN.lastIndex = 0
-  while ((match = DECORATOR_PATTERN.exec(content)) !== null) {
-    decorators.push({
-      name: match[1],
-      arguments: match[2],
-    })
-  }
-  return decorators
 }

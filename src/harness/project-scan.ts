@@ -45,6 +45,9 @@ export interface ProjectScanResult {
     totalRoutes: number
     totalModels: number
     totalNodes: number
+    totalConcepts?: number
+    /** Distinct language plugin ids that produced parsed files. */
+    languages?: string[]
   }
   as_is_markdown: string
   prefill: InterviewPrefill
@@ -327,6 +330,7 @@ export async function scanProject(
   let analysis_summary: ProjectScanResult['analysis_summary']
   let routeLines = ''
   let modelLines = ''
+  let conceptLines = ''
   try {
     const { analyzeProject } = await import('@/static-analysis')
     const roots = (
@@ -337,12 +341,20 @@ export async function scanProject(
       )
     ).filter((x): x is string => !!x)
     if (roots.length) {
-      const result = await analyzeProject(roots.length ? roots : [root])
+      // Pass detected languages through to the analysis layer so only the
+      // matching language plugins run (avoids scanning a Java repo with the
+      // TS parser, etc.). Falls back to "all plugins" when detection is empty.
+      const detectedLanguages = mapToPluginLanguageIds(detection.languages.map((l) => l.id))
+      const result = await analyzeProject(roots.length ? roots : [root], {
+        languages: detectedLanguages.length ? detectedLanguages : undefined,
+      })
       analysis_summary = {
         totalFiles: result.summary.totalFiles,
         totalRoutes: result.summary.totalRoutes,
         totalModels: result.summary.totalModels,
         totalNodes: result.summary.totalNodes,
+        totalConcepts: result.summary.totalConcepts,
+        languages: result.summary.languages,
       }
       routeLines = result.routes
         .slice(0, 30)
@@ -351,6 +363,10 @@ export async function scanProject(
       modelLines = result.models
         .slice(0, 30)
         .map((m) => `- \`${m.name}\` (${m.file})`)
+        .join('\n')
+      conceptLines = result.concepts
+        .slice(0, 30)
+        .map((c) => `- \`${c.name}\` (${c.kind})${c.file ? ` (${c.file})` : ''}`)
         .join('\n')
     }
   } catch {
@@ -427,8 +443,12 @@ export async function scanProject(
     '## Analysis summary',
     '',
     analysis_summary
-      ? `- Files: ${analysis_summary.totalFiles}, Nodes: ${analysis_summary.totalNodes}, Routes: ${analysis_summary.totalRoutes}, Models: ${analysis_summary.totalModels}`
+      ? `- Files: ${analysis_summary.totalFiles}, Nodes: ${analysis_summary.totalNodes}, Routes: ${analysis_summary.totalRoutes}, Models: ${analysis_summary.totalModels}, Concepts: ${analysis_summary.totalConcepts ?? 0}`
       : '- Static analysis unavailable or skipped',
+    '',
+    analysis_summary?.languages?.length
+      ? `- Detected analysis languages: ${analysis_summary.languages.join(', ')}`
+      : '',
     '',
     '## Routes (sample)',
     '',
@@ -437,6 +457,10 @@ export async function scanProject(
     '## Models (sample)',
     '',
     modelLines || '- (none)',
+    '',
+    '## Domain concepts (sample)',
+    '',
+    conceptLines || '- (none)',
     '',
     `## Hard rule`,
     '',
@@ -540,4 +564,39 @@ export async function scanProject(
   void ingested
 
   return result
+}
+
+/**
+ * Map detected language ids (from `detect-language`) to static-analysis
+ * language plugin ids. The TS plugin covers `.js/.jsx`; the Java plugin
+ * covers `.kt/.kts`. Languages without a registered plugin are dropped so
+ * the analysis layer doesn't waste cycles on unsupported extensions.
+ */
+function mapToPluginLanguageIds(ids: string[]): string[] {
+  const mapped = new Set<string>()
+  for (const id of ids) {
+    switch (id) {
+      case 'typescript':
+      case 'javascript':
+        mapped.add('typescript')
+        break
+      case 'python':
+        mapped.add('python')
+        break
+      case 'java':
+      case 'kotlin':
+        mapped.add('java')
+        break
+      case 'go':
+        mapped.add('go')
+        break
+      case 'rust':
+        mapped.add('rust')
+        break
+      default:
+        // Unsupported language — skip rather than fall back to all plugins.
+        break
+    }
+  }
+  return Array.from(mapped)
 }

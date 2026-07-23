@@ -121,10 +121,11 @@ const PREFIXES = [
   'GITHUB_',
   'GITLAB_',
   'BITBUCKET_',
-  // Cloud
-  'AWS_',
+  // Cloud (region/profile only — credentials stay blocked unless passthrough/extra)
   'AWS_REGION',
   'AWS_DEFAULT_REGION',
+  'AWS_PROFILE',
+  'AWS_SDK_LOAD_CONFIG',
   'AZURE_',
   'GOOGLE_CLOUD_',
   'GCP_',

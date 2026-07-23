@@ -1,6 +1,6 @@
 # AS-IS Codebase
 
-Scanned: 2026-07-23T04:43:20.590Z
+Scanned: 2026-07-23T23:46:15.159Z
 
 ## Detected stack
 
@@ -11,7 +11,7 @@ Scanned: 2026-07-23T04:43:20.590Z
 
 ## Languages
 
-- TypeScript — found package.json; found tsconfig.json; 170 source file(s) matched extensions (confidence 11)
+- TypeScript — found package.json; found tsconfig.json; 178 source file(s) matched extensions (confidence 11)
 - JavaScript — found package.json; 1 source file(s) matched extensions (confidence 4)
 
 ## Layout hints
@@ -25,13 +25,29 @@ Scanned: 2026-07-23T04:43:20.590Z
 
 ## Analysis summary
 
-- Files: 128, Nodes: 608, Routes: 0, Models: 0
+- Files: 156, Nodes: 680, Routes: 10, Models: 2, Concepts: 0
+
+- Detected analysis languages: typescript
 
 ## Routes (sample)
 
-- (none)
+- `GET /base/path` (D:\projects\new-project\ai-orchestration-ts\src\static-analysis\routes\nestjs\index.ts)
+- `POST /base/path` (D:\projects\new-project\ai-orchestration-ts\src\static-analysis\routes\nestjs\index.ts)
+- `GET /health` (D:\projects\new-project\ai-orchestration-ts\src\harness\scaffold\scaffold-app.ts)
+- `GET /path` (D:\projects\new-project\ai-orchestration-ts\src\static-analysis\routes\express\index.ts)
+- `POST /path` (D:\projects\new-project\ai-orchestration-ts\src\static-analysis\routes\express\index.ts)
+- `GET /path` (D:\projects\new-project\ai-orchestration-ts\src\static-analysis\routes\fastapi\index.ts)
+- `POST /path` (D:\projects\new-project\ai-orchestration-ts\src\static-analysis\routes\fastapi\index.ts)
+- `GET /path` (D:\projects\new-project\ai-orchestration-ts\src\static-analysis\routes\fastify\index.ts)
+- `POST /path` (D:\projects\new-project\ai-orchestration-ts\src\static-analysis\routes\gin\index.ts)
+- `POST /path` (D:\projects\new-project\ai-orchestration-ts\src\static-analysis\routes\fastify\index.ts)
 
 ## Models (sample)
+
+- `Foo` (D:\projects\new-project\ai-orchestration-ts\src\static-analysis\models\prisma\index.ts)
+- `Foo` (D:\projects\new-project\ai-orchestration-ts\src\static-analysis\models\mongoose\index.ts)
+
+## Domain concepts (sample)
 
 - (none)
 

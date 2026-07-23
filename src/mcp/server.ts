@@ -122,7 +122,7 @@ export class MCPServer {
       branchHunt: this.branchHunt,
       approval: this.approval,
     })
-    registerAnalysisTools(this.server)
+    registerAnalysisTools(this.server, this.vault, this.search)
     registerSddTools(this.server, this.approval)
     registerImpactTools(this.server)
     registerMemoryTools(this.server)

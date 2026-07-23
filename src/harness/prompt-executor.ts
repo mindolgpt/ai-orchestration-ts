@@ -272,6 +272,58 @@ async function dispatchTool(
       })
     }
 
+    case 'bootstrap_product': {
+      const { bootstrapProduct } = await import('@/harness/product-pipeline')
+      return bootstrapProduct({
+        projectRoot,
+        vault,
+        search,
+        domain: asStr(p.domain) || undefined,
+        description: asStr(p.description) || asStr(p.message) || message,
+        interview_answers: p.interview_answers as
+          import('@/harness/bootstrap-interview').HarnessInterviewAnswers | undefined,
+        non_interactive: p.non_interactive === true,
+        auto_approve_spec: p.auto_approve_spec === true,
+        resume: p.resume !== false,
+        reset: p.reset === true,
+        force_scaffold: p.force_scaffold === true || p.force === true,
+        format: p.format === 'path' || p.format === 'summary' ? p.format : 'summary',
+        phases: Array.isArray(p.phases) ? (p.phases as never) : undefined,
+      })
+    }
+
+    case 'scaffold_apps': {
+      const { scaffoldApps } = await import('@/harness/scaffold/scaffold-app')
+      const { scanProject } = await import('@/harness/project-scan')
+      const scan = await scanProject(projectRoot)
+      const stacks = detectStacksFromText(message)
+      return scaffoldApps({
+        projectRoot,
+        frontend: {
+          framework: asStr(p.frontend) || stacks.frontend || 'nextjs',
+          side: 'frontend',
+          language: 'typescript',
+        },
+        backend: {
+          framework: asStr(p.backend) || stacks.backend || 'nestjs',
+          side: 'backend',
+          language: 'typescript',
+        },
+        has_source: scan.has_source && p.force !== true,
+        force: p.force === true,
+      })
+    }
+
+    case 'run_implement_loop': {
+      const { runImplementLoop } = await import('@/harness/implement-loop')
+      return runImplementLoop({
+        projectRoot,
+        spec_id: asStr(p.spec_id) || undefined,
+        ralph_max_retries: Number(p.ralph_max_retries) || undefined,
+        dry_run: p.dry_run === true,
+      })
+    }
+
     case 'design_architecture':
       return designArchitecture(vault, search, asStr(p.intent, message), {
         project_root: projectRoot,
@@ -737,6 +789,80 @@ async function dispatchTool(
       const { writeDocs } = await import('@/docs/generator')
       const files = await writeDocs(projectRoot)
       return { ok: true, files }
+    }
+
+    case 'analyze_codebase': {
+      const { analyzeProject } = await import('@/static-analysis')
+      const roots = Array.isArray(p.paths) ? (p.paths as string[]) : [projectRoot]
+      const result = await analyzeProject(roots, {
+        include: Array.isArray(p.include) ? (p.include as string[]) : undefined,
+        exclude: Array.isArray(p.exclude) ? (p.exclude as string[]) : undefined,
+      })
+      return {
+        summary: result.summary,
+        routes: result.routes.slice(0, 40).map((r) => ({
+          method: r.method,
+          path: r.path,
+          handler: r.handler,
+        })),
+        models: result.models.slice(0, 40).map((m) => ({
+          name: m.name,
+          orm: m.orm,
+          fields: m.fields.length,
+        })),
+        graph: { nodes: result.graph.nodes.size, edges: result.graph.edges.length },
+        next: 'Call generate_sot to persist into wiki/sot/',
+      }
+    }
+
+    case 'generate_sot': {
+      const { generateAndStoreSot } = await import('@/knowledge/sot-generator')
+      const roots = Array.isArray(p.paths) ? (p.paths as string[]) : [projectRoot]
+      const stored = await generateAndStoreSot(vault, search, {
+        projectRoots: roots,
+        updateIndex: p.update_index !== false,
+      })
+      return {
+        ok: stored.ok,
+        pages: stored.pages,
+        errors: stored.errors,
+        next: stored.ok
+          ? 'query_wiki / domain_context for SOT pages'
+          : 'Inspect errors and re-run generate_sot',
+      }
+    }
+
+    case 'query_code_graph': {
+      const { analyzeProject } = await import('@/static-analysis')
+      const q = asStr(p.query, message)
+      const result = await analyzeProject([projectRoot])
+      const nodes = Array.from(result.graph.nodes.values()).filter((n) =>
+        n.name.toLowerCase().includes(q.toLowerCase())
+      )
+      return {
+        query: q,
+        mode: p.mode || 'symbol',
+        results: nodes.slice(0, 50).map((n) => ({
+          id: n.id,
+          kind: n.kind,
+          name: n.name,
+          file: n.filePath,
+        })),
+        total_matches: nodes.length,
+      }
+    }
+
+    case 'code_graph_status': {
+      const { analyzeProject } = await import('@/static-analysis')
+      const result = await analyzeProject([projectRoot])
+      return {
+        last_analyzed: new Date(result.summary.analyzedAt).toISOString(),
+        total_files: result.summary.totalFiles,
+        total_nodes: result.summary.totalNodes,
+        total_edges: result.summary.totalEdges,
+        total_routes: result.summary.totalRoutes,
+        total_models: result.summary.totalModels,
+      }
     }
 
     default:

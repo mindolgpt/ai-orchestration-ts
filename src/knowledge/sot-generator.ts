@@ -1,6 +1,6 @@
 import { ObsidianVault } from '@/knowledge/vault'
 import { SemanticSearch } from '@/knowledge/search'
-import { ingestSource, updateWikiPage } from '@/knowledge/wiki-ops'
+import { ingestSource } from '@/knowledge/wiki-ops'
 import { analyzeProject } from '@/static-analysis'
 
 export interface SotGenerationOptions {
@@ -156,22 +156,34 @@ async function updateSotIndex(
   search: SemanticSearch,
   pages: SotPage[]
 ): Promise<void> {
+  // Do not overwrite wiki/index.md — ingestSource already upserts catalog entries.
+  // Keep a dedicated SOT catalog for agents (low-token browse).
   const indexContent = [
-    '## Auto-generated SOT',
+    '# Auto-generated SOT',
     '',
-    '> Source of Truth pages generated from static analysis.',
+    '> Source of Truth pages from static analysis. Refresh with `generate_sot`.',
     '',
-    ...pages.map((p) => `- [[sot/${p.title}]] — ${p.summary}`),
+    ...pages.map((p) => {
+      const slug = p.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+      return `- [[${p.title}]] (\`wiki/sot/${slug}\`) — ${p.summary}`
+    }),
+    '',
+    '## Next',
+    '',
+    '- `query_wiki` with snippets for these pages',
+    '- `domain_context({ task, format: "path" })` before implementation',
     '',
   ].join('\n')
 
-  try {
-    await updateWikiPage(vault, search, {
-      title: 'wiki/index',
-      content: indexContent,
-      tags: ['sot', 'index'],
-    })
-  } catch {
-    await vault.writeNote('wiki/sot-index.md', indexContent)
-  }
+  await vault.writeNote('wiki/sot/index.md', indexContent, ['sot', 'index', 'auto-generated'])
+  await search.addDocument(
+    'wiki/sot/index.md',
+    'SOT Index',
+    pages.map((p) => `${p.title}: ${p.summary}`).join('\n'),
+    ['sot', 'index']
+  )
+  await search.save()
 }

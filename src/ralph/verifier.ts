@@ -5,12 +5,11 @@ import * as path from 'path'
 
 const execFileAsync = promisify(execFile)
 
-export type VerifyStep = 'build' | 'lint' | 'test' | 'custom'
+export type VerifyStep = 'build' | 'lint' | 'test' | 'typecheck' | 'acceptance' | 'custom'
 
 export interface VerifierOptions {
   projectRoot: string
   timeoutMs?: number
-  /** Default: from AIO_VERIFY_STEPS or build,lint,test */
   steps?: VerifyStep[]
   customCommand?: string
   customArgs?: string[]
@@ -21,6 +20,8 @@ export interface VerifyReport {
   build: boolean
   lint: boolean
   tests: boolean
+  typecheck: boolean
+  acceptance: boolean
   custom: boolean
   detail: string
   steps_run: string[]
@@ -32,7 +33,15 @@ function parseStepsEnv(): VerifyStep[] | undefined {
   return raw
     .split(',')
     .map((s) => s.trim().toLowerCase())
-    .filter((s): s is VerifyStep => s === 'build' || s === 'lint' || s === 'test' || s === 'custom')
+    .filter(
+      (s): s is VerifyStep =>
+        s === 'build' ||
+        s === 'lint' ||
+        s === 'test' ||
+        s === 'typecheck' ||
+        s === 'acceptance' ||
+        s === 'custom'
+    )
 }
 
 export class Verifier {
@@ -44,7 +53,10 @@ export class Verifier {
 
   constructor(private options: VerifierOptions) {
     this.timeoutMs = options.timeoutMs ?? 120_000
-    this.steps = options.steps || parseStepsEnv() || (['build', 'lint', 'test'] as VerifyStep[])
+    this.steps =
+      options.steps ||
+      parseStepsEnv() ||
+      (['build', 'lint', 'typecheck', 'test', 'acceptance'] as VerifyStep[])
     this.customCommand = options.customCommand || process.env.AIO_VERIFY_CUSTOM_CMD
     this.customArgs = options.customArgs || []
     if (process.env.AIO_VERIFY_CUSTOM_ARGS) {
@@ -119,6 +131,53 @@ export class Verifier {
     }
   }
 
+  async verifyAcceptance(): Promise<{ ok: boolean; detail: string; skipped?: boolean }> {
+    const sddRoot = path.join(this.options.projectRoot, '.aio', 'sdd')
+    let files: string[] = []
+    try {
+      const entries = await fs.readdir(sddRoot, { withFileTypes: true })
+      for (const ent of entries) {
+        if (!ent.isDirectory()) continue
+        const candidate = path.join(sddRoot, ent.name, 'acceptance.json')
+        try {
+          await fs.access(candidate)
+          files.push(candidate)
+        } catch {
+          /* skip */
+        }
+      }
+    } catch {
+      return { ok: true, detail: 'no acceptance.json — skipped', skipped: true }
+    }
+    if (!files.length) {
+      return { ok: true, detail: 'no acceptance.json — skipped', skipped: true }
+    }
+    // Prefer newest by mtime
+    files = (await Promise.all(files.map(async (f) => ({ f, t: (await fs.stat(f)).mtimeMs }))))
+      .sort((a, b) => b.t - a.t)
+      .map((x) => x.f)
+
+    const raw = await fs.readFile(files[0], 'utf-8')
+    const data = JSON.parse(raw) as {
+      items?: Array<{ id: string; description: string; status: string }>
+    }
+    const items = data.items || []
+    if (!items.length) {
+      return { ok: true, detail: 'acceptance empty — skipped', skipped: true }
+    }
+    const pending = items.filter((i) => i.status !== 'pass')
+    if (pending.length) {
+      return {
+        ok: false,
+        detail: `acceptance unmet: ${pending
+          .slice(0, 8)
+          .map((p) => p.id)
+          .join(', ')}`,
+      }
+    }
+    return { ok: true, detail: `acceptance ${items.length} items pass` }
+  }
+
   async verifyBuild(): Promise<boolean> {
     return (await this.runNpm('build')).ok
   }
@@ -131,7 +190,6 @@ export class Verifier {
     return (await this.runNpm('test')).ok
   }
 
-  /** Sequential verify ladder per configured steps. */
   async verifyAll(): Promise<VerifyReport> {
     const parts: string[] = []
     const steps_run: string[] = []
@@ -140,6 +198,8 @@ export class Verifier {
       build: true,
       lint: true,
       tests: true,
+      typecheck: true,
+      acceptance: true,
       custom: true,
       detail: '',
       steps_run,
@@ -165,6 +225,15 @@ export class Verifier {
           return report
         }
         parts.push(r.skipped ? 'lint skipped' : 'lint ok')
+      } else if (step === 'typecheck') {
+        const r = await this.runNpm('typecheck')
+        report.typecheck = r.ok
+        if (!r.ok) {
+          report.ok = false
+          report.detail = `typecheck: ${r.detail}`
+          return report
+        }
+        parts.push(r.skipped ? 'typecheck skipped' : 'typecheck ok')
       } else if (step === 'test') {
         const r = await this.runNpm('test')
         report.tests = r.ok
@@ -174,6 +243,15 @@ export class Verifier {
           return report
         }
         parts.push(r.skipped ? 'test skipped' : 'test ok')
+      } else if (step === 'acceptance') {
+        const r = await this.verifyAcceptance()
+        report.acceptance = r.ok
+        if (!r.ok) {
+          report.ok = false
+          report.detail = `acceptance: ${r.detail}`
+          return report
+        }
+        parts.push(r.skipped ? 'acceptance skipped' : 'acceptance ok')
       } else if (step === 'custom') {
         const r = await this.runCustom()
         report.custom = r.ok

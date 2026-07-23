@@ -15,7 +15,7 @@ export class FileSpecStore implements SpecStore {
   private dir: string
 
   constructor(baseDir: string) {
-    this.dir = path.join(baseDir, 'sdd')
+    this.dir = path.join(baseDir, '.aio', 'sdd', 'meta', 'specs')
   }
 
   private filePath(id: string): string {

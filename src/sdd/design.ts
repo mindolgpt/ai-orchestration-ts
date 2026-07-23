@@ -18,7 +18,7 @@ export class FileDesignStore implements DesignStore {
   private dir: string
 
   constructor(baseDir: string) {
-    this.dir = path.join(baseDir, 'sdd')
+    this.dir = path.join(baseDir, '.aio', 'sdd', 'meta', 'designs')
   }
 
   private filePath(id: string): string {
@@ -82,7 +82,7 @@ export function createDesign(spec: SddSpec, projectRoot: string): SddDesign {
   }
 }
 
-function formatDefaultDesignBody(spec: SddSpec): string {
+export function formatDefaultDesignBody(spec: SddSpec): string {
   return [
     `# System Design: ${spec.title}`,
     '',

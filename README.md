@@ -53,6 +53,7 @@ npx -y @mindol1004/aio-mcp mcp-serve     # start MCP server (stdio)
 | **SOT Generator**   | `generate_sot` — auto-generated service encyclopedia            |
 | `query_wiki`        | Default `response_mode: snippets` (use `full` only when needed) |
 | `domain_context`    | Unified tool replacing `bootstrap_domain`/`run_domain_loop`     |
+| `generate_sot`      | Static analysis → persist SOT pages under `wiki/sot/` + index   |
 | `AIO_MCP_TOOL_SET`  | `core` \| `wiki` \| `full` — reduce MCP schema noise            |
 
 **One-shot health check:** `aio doctor` covers Node, `AIO_PROJECT_ROOT`, vault, wiki count, index, harness files, **active AI tool detection**, alerts for **unused tool files**, MCP config, git, rg, session runtime, and embeddings.
@@ -689,8 +690,11 @@ Reduce MCP + tool response tokens for AI agents:
 ### Workflow cards
 
 ```
+[New product]     bootstrap_product (wiki → SDD → scan/interview → harness → contracts/scaffold → CI → implement)
+                  Interview order: languages → tech stack → architecture methodology → coding rules (KO/EN)
+                  Resume: .aio/product-pipeline.json  |  SDD approve then bootstrap_product({ resume:true })
 [New project]     init → bootstrap_harness → seed_stacks → run_doctor
-[Implement]       domain_context → plan_task → execute_dag → file_back → lint_wiki
+[Implement]       domain_context → run_implement_loop (DoD) / plan_task → execute_dag → file_back → lint_wiki
 [Design]          brainstorm_design (fixed topic + merged answers)
 [Ingest docs]     ingest_pipeline(lint_mode:none) → lint_wiki
 [Parallel research] spawn_session × N → check_inbox → synthesize_results

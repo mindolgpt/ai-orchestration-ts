@@ -1,11 +1,16 @@
 /** Workflow step ids for aio_prompt dry-run / routing hints. */
 const TOOL_WORKFLOW_STEP: Record<string, string> = {
+  bootstrap_product: 'onboard',
   bootstrap_harness: 'onboard',
+  scaffold_apps: 'onboard',
   run_doctor: 'onboard',
   seed_stack_playbooks: 'onboard',
   bootstrap_domain: 'implement_prep',
   domain_context: 'implement_prep',
   run_domain_loop: 'implement_prep',
+  run_implement_loop: 'execute',
+  sdd_spec: 'plan',
+  sdd_status: 'plan',
   query_wiki: 'research',
   recall_knowledge: 'research',
   brainstorm_design: 'design',

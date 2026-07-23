@@ -13,11 +13,17 @@ export async function generateTasks(
     designSchemaVersion: 'sdd-design.v1',
     planKind: 'implementation-checklist',
     executionReadiness: spec?.status === 'approved' ? 'ready' : 'blocked',
-    tasksPath: path.join(baseDir, 'sdd', design.id, 'tasks.md'),
+    tasksPath: path.join(baseDir, '.aio', 'sdd', design.id, 'tasks.md'),
     createdAt: Date.now(),
   }
 
-  const body = formatTasksBody(design, spec)
+  let body = formatTasksBody(design, spec)
+  try {
+    const { buildTasksMarkdown } = await import('@/sdd/from-wiki')
+    body = buildTasksMarkdown(design, spec, [])
+  } catch {
+    /* keep default */
+  }
   const dir = path.dirname(tasks.tasksPath)
   await fs.mkdir(dir, { recursive: true })
   await fs.writeFile(tasks.tasksPath, body, 'utf-8')

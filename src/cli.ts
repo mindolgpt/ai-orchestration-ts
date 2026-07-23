@@ -368,6 +368,49 @@ program
   )
 
 program
+  .command('bootstrap-product')
+  .option('--domain <name>', 'Domain name')
+  .option('--description <text>', 'Product description')
+  .option('--non-interactive', 'Auto-accept interview defaults (CI)', false)
+  .option('--auto-approve-spec', 'Auto-approve SDD spec (opt-in)', false)
+  .option('--reset', 'Reset pipeline checkpoint', false)
+  .option('--force-scaffold', 'Overwrite apps even if source exists', false)
+  .option(
+    '--phases <list>',
+    'Comma phases: wiki,sdd,interview,harness,contracts,scaffold,ci,implement'
+  )
+  .description('Full product pipeline: wiki → SDD → interview → harness → scaffold → DoD loop')
+  .action(
+    async (options: {
+      domain?: string
+      description?: string
+      nonInteractive?: boolean
+      autoApproveSpec?: boolean
+      reset?: boolean
+      forceScaffold?: boolean
+      phases?: string
+    }) => {
+      const { bootstrapProduct } = await import('@/harness/product-pipeline')
+      const phases = options.phases
+        ?.split(',')
+        .map((p) => p.trim())
+        .filter(Boolean) as import('@/harness/product-pipeline').ProductPhase[] | undefined
+      const result = await bootstrapProduct({
+        domain: options.domain,
+        description: options.description,
+        non_interactive: options.nonInteractive === true,
+        auto_approve_spec: options.autoApproveSpec === true,
+        reset: options.reset === true,
+        force_scaffold: options.forceScaffold === true,
+        phases,
+        format: 'summary',
+      })
+      console.log(chalk.bold.cyan('\n🚀 bootstrap_product'))
+      console.log(JSON.stringify(result, null, 2))
+    }
+  )
+
+program
   .command('ingest')
   .option('--vault <path>', 'Obsidian vault path')
   .option('--file <path>', 'Source text file path')

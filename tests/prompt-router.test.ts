@@ -36,6 +36,16 @@ describe('keyword routePrompt — harness', () => {
     expect(r.score).toBeGreaterThan(0)
   })
 
+  test('제품 파이프라인 / bootstrap product keywords', () => {
+    expect(routePrompt('제품 파이프라인 시작해줘').tool).toBe('bootstrap_product')
+    expect(routePrompt('bootstrap product for my app').tool).toBe('bootstrap_product')
+  })
+
+  test('구현 루프 / implement loop keywords', () => {
+    expect(routePrompt('구현 루프 돌려줘').tool).toBe('run_implement_loop')
+    expect(routePrompt('run the implement loop').tool).toBe('run_implement_loop')
+  })
+
   test('bare harness does not false-match', () => {
     expect(routePrompt('just mention harness in passing').tool).toBe('unknown')
   })

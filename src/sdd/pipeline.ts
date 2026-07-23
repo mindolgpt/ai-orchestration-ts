@@ -1,3 +1,5 @@
+import * as fs from 'fs/promises'
+import * as path from 'path'
 import {
   SddSpec,
   SddDesign,
@@ -13,6 +15,7 @@ import {
   writeDesignFile,
   readDesignFile,
   buildKickoffPacket,
+  formatDefaultDesignBody,
 } from './design'
 import { generateTasks } from './tasks'
 import {
@@ -22,6 +25,7 @@ import {
 } from './revision'
 import { validateDesignReadiness, validateTaskReadiness, selfReview } from './validator'
 import { ApprovalGate } from '@/orchestrator/approval'
+import { buildEnrichedDesignBody } from '@/sdd/from-wiki'
 
 export class SddPipeline {
   private specStore: FileSpecStore
@@ -72,8 +76,26 @@ export class SddPipeline {
       return { currentStage: 'spec', spec, error: 'Spec must be approved before design' }
 
     const design = createDesign(spec, this.baseDir)
-    buildKickoffPacket(spec) // build but don't store yet
-    await writeDesignFile(design, '')
+    buildKickoffPacket(spec)
+    let body = formatDefaultDesignBody(spec)
+    try {
+      const asIsPath = path.join(this.baseDir, 'vault', 'wiki', 'as-is-codebase.md')
+      let asIsMarkdown: string | undefined
+      try {
+        asIsMarkdown = await fs.readFile(asIsPath, 'utf-8')
+      } catch {
+        /* optional */
+      }
+      body = buildEnrichedDesignBody({
+        projectRoot: this.baseDir,
+        spec,
+        requirements: [],
+        asIsMarkdown,
+      })
+    } catch {
+      /* keep default body */
+    }
+    await writeDesignFile(design, body)
     await this.designStore.save(design)
 
     return { currentStage: 'design', spec, design }

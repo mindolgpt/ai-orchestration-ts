@@ -2,15 +2,23 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { analyzeProject } from '@/static-analysis'
 import { resolveProjectRoot } from '@/knowledge/paths'
+import { ObsidianVault } from '@/knowledge/vault'
+import { SemanticSearch } from '@/knowledge/search'
+import { generateAndStoreSot } from '@/knowledge/sot-generator'
 import { jsonResult } from '@/mcp/json-result'
 import { registerMcpTool } from '@/mcp/register-tool'
 
-export function registerAnalysisTools(server: McpServer): void {
+export function registerAnalysisTools(
+  server: McpServer,
+  vault: ObsidianVault,
+  search: SemanticSearch
+): void {
   registerMcpTool(
     server,
     'analyze_codebase',
     {
-      description: '정적 분석 실행: 코드 그래프, 라우트, 모델 추출. 분석 결과를 반환합니다.',
+      description:
+        '정적 분석: 코드 그래프·라우트·모델 요약. 위키에 쌓으려면 generate_sot를 이어서 호출.',
       inputSchema: z.object({
         paths: z.array(z.string()).optional(),
         include: z.array(z.string()).optional(),
@@ -37,6 +45,7 @@ export function registerAnalysisTools(server: McpServer): void {
           nodes: result.graph.nodes.size,
           edges: result.graph.edges.length,
         },
+        next: 'Call generate_sot to persist architecture/API/data summaries into wiki/sot/ for RAG.',
       })
     }
   )
@@ -97,40 +106,30 @@ export function registerAnalysisTools(server: McpServer): void {
     server,
     'generate_sot',
     {
-      description: '정적 분석 결과 → 서비스 백과사전(SOT) 생성 및 wiki/sot/ 저장.',
+      description:
+        '정적 분석 → 서비스 백과사전(SOT)을 wiki/sot/에 저장하고 검색 인덱스에 반영. Keywords: 서비스 백과사전 / generate sot.',
       inputSchema: z.object({
+        paths: z.array(z.string()).optional(),
         scope: z.enum(['full', 'incremental']).optional(),
         overwrite: z.boolean().optional(),
+        update_index: z.boolean().optional(),
       }),
     },
-    async (_args) => {
+    async (args) => {
       const root = resolveProjectRoot()
-      const result = await analyzeProject([root])
-
-      const sotPages = [
-        {
-          title: 'Architecture Overview',
-          content: generateArchitectureSot(result),
-          tags: ['sot', 'architecture', 'auto-generated'],
-        },
-        {
-          title: 'API Endpoints',
-          content: generateApiSot(result),
-          tags: ['sot', 'api', 'auto-generated'],
-        },
-        {
-          title: 'Data Models',
-          content: generateDataModelSot(result),
-          tags: ['sot', 'data-models', 'auto-generated'],
-        },
-      ]
-
+      const roots = args.paths?.length ? args.paths : [root]
+      const stored = await generateAndStoreSot(vault, search, {
+        projectRoots: roots,
+        updateIndex: args.update_index !== false,
+      })
       return jsonResult({
-        ok: true,
-        summary: result.summary,
-        sot_pages: sotPages.map((p) => ({ title: p.title, tags: p.tags })),
+        ok: stored.ok,
+        pages: stored.pages,
+        errors: stored.errors,
         generated_at: new Date().toISOString(),
-        note: 'SOT pages returned; use ingest_pipeline to persist to vault.',
+        next: stored.ok
+          ? 'query_wiki for SOT pages (snippets). Prefer domain_context(format:path) for tasks.'
+          : 'Fix errors and re-run generate_sot, or inspect vault/wiki/sot/.',
       })
     }
   )
@@ -155,63 +154,4 @@ export function registerAnalysisTools(server: McpServer): void {
       })
     }
   )
-}
-
-function generateArchitectureSot(result: {
-  graph: {
-    nodes: Map<string, { id: string; kind: string; name: string }>
-    edges: { source: string; target: string; kind: string }[]
-  }
-  summary: { totalFiles: number; totalNodes: number }
-}): string {
-  const moduleCount = Array.from(result.graph.nodes.values()).filter(
-    (n) => n.kind === 'module'
-  ).length
-  const routeCount = Array.from(result.graph.nodes.values()).filter(
-    (n) => n.kind === 'route'
-  ).length
-  const modelCount = Array.from(result.graph.nodes.values()).filter(
-    (n) => n.kind === 'model'
-  ).length
-
-  return [
-    '# Architecture Overview',
-    '',
-    '> Auto-generated from static analysis.',
-    '',
-    `## Summary`,
-    '',
-    `- Total source files analyzed: ${result.summary.totalFiles}`,
-    `- Code graph nodes: ${result.summary.totalNodes}`,
-    `- Routes detected: ${routeCount}`,
-    `- Data models detected: ${modelCount}`,
-    `- Module count: ${moduleCount}`,
-    '',
-    '## Module Dependencies',
-    '',
-    'The code graph shows the following import relationships between modules.',
-    '',
-  ].join('\n')
-}
-
-function generateApiSot(result: {
-  routes: { method: string; path: string; handler: string }[]
-}): string {
-  const lines = ['# API Endpoints', '', '> Auto-generated from static analysis.', '']
-  for (const route of result.routes) {
-    lines.push(`- \`${route.method} ${route.path}\` → ${route.handler}`)
-  }
-  return lines.join('\n')
-}
-
-function generateDataModelSot(result: {
-  models: { name: string; orm: string; tableName?: string; fields: unknown[] }[]
-}): string {
-  const lines = ['# Data Models', '', '> Auto-generated from static analysis.', '']
-  for (const model of result.models) {
-    lines.push(
-      `- **${model.name}** (${model.orm}, table: ${model.tableName || 'unknown'}, ${model.fields.length} fields)`
-    )
-  }
-  return lines.join('\n')
 }

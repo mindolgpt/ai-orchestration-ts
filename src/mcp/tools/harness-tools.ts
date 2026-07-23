@@ -544,4 +544,132 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
       })
     }
   )
+
+  registerMcpTool(
+    server,
+    'bootstrap_product',
+    {
+      description:
+        'Full product pipeline: wiki → SDD → project-scan interview (lang→stack→architecture→rules) → harness/skills/contracts/scaffold/CI → optional implement loop. Resumable via .aio/product-pipeline.json. Keywords: 제품 파이프라인 / bootstrap product / greenfield setup.',
+      inputSchema: z.object({
+        domain: z.string().optional(),
+        description: z.string().optional(),
+        sources: z.array(z.string()).optional(),
+        requirements: z
+          .array(
+            z.object({
+              id: z.string(),
+              priority: z.enum(['P0', 'P1', 'P2']),
+              description: z.string(),
+              acceptance_criteria: z.array(z.string()).optional(),
+            })
+          )
+          .optional(),
+        interview: z.boolean().optional(),
+        interview_answers: z.record(z.unknown()).optional(),
+        non_interactive: z.boolean().optional(),
+        auto_approve_spec: z.boolean().optional(),
+        resume: z.boolean().optional(),
+        reset: z.boolean().optional(),
+        force_scaffold: z.boolean().optional(),
+        phases: z
+          .array(
+            z.enum([
+              'wiki',
+              'sdd',
+              'interview',
+              'harness',
+              'contracts',
+              'scaffold',
+              'ci',
+              'implement',
+            ])
+          )
+          .optional(),
+        format: z.enum(['path', 'summary']).optional(),
+      }),
+    },
+    async (args) => {
+      const { bootstrapProduct } = await import('@/harness/product-pipeline')
+      const result = await bootstrapProduct({
+        projectRoot: root,
+        vault,
+        search,
+        domain: args.domain,
+        description: args.description,
+        sources: args.sources,
+        requirements: args.requirements,
+        interview: args.interview,
+        interview_answers: args.interview_answers as never,
+        non_interactive: args.non_interactive,
+        auto_approve_spec: args.auto_approve_spec,
+        resume: args.resume,
+        reset: args.reset,
+        force_scaffold: args.force_scaffold,
+        phases: args.phases,
+        format: args.format,
+      })
+      await getEventLog(root).emit('harness.bootstrap_product', {
+        status: (result as { status?: string }).status,
+      })
+      return json(result)
+    }
+  )
+
+  registerMcpTool(
+    server,
+    'scaffold_apps',
+    {
+      description:
+        'Scaffold apps/web + apps/api + packages/contracts from interview tech stack. Skips when existing source detected unless force. Keywords: 앱 스캐폴드 / scaffold apps.',
+      inputSchema: z.object({
+        frontend: z.string().optional(),
+        backend: z.string().optional(),
+        force: z.boolean().optional(),
+        include_contracts: z.boolean().optional(),
+      }),
+    },
+    async (args) => {
+      const { scaffoldApps } = await import('@/harness/scaffold/scaffold-app')
+      const { scanProject } = await import('@/harness/project-scan')
+      const scan = await scanProject(root)
+      const result = await scaffoldApps({
+        projectRoot: root,
+        frontend: {
+          framework: args.frontend || 'nextjs',
+          side: 'frontend',
+          language: 'typescript',
+        },
+        backend: { framework: args.backend || 'nestjs', side: 'backend', language: 'typescript' },
+        has_source: scan.has_source && !args.force,
+        force: args.force === true,
+        include_contracts: args.include_contracts !== false,
+      })
+      return json(result)
+    }
+  )
+
+  registerMcpTool(
+    server,
+    'run_implement_loop',
+    {
+      description:
+        'DoD implement loop: Ralph retries with build/lint/typecheck/test/acceptance. Keywords: 구현 루프 / implement loop / run until done.',
+      inputSchema: z.object({
+        spec_id: z.string().optional(),
+        ralph_max_retries: z.number().optional(),
+        dry_run: z.boolean().optional(),
+      }),
+    },
+    async (args) => {
+      const { runImplementLoop } = await import('@/harness/implement-loop')
+      const result = await runImplementLoop({
+        projectRoot: root,
+        spec_id: args.spec_id,
+        ralph_max_retries: args.ralph_max_retries,
+        dry_run: args.dry_run,
+      })
+      return json(result)
+    }
+  )
 }

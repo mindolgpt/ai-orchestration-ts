@@ -4,6 +4,7 @@ import * as fs from 'fs/promises'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
+import * as path from 'node:path'
 import { Command, OptionValues } from 'commander'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -33,9 +34,84 @@ interface McpServeOptions extends OptionValues {
   vault?: string
   maxSessions: string
 }
+
+interface AnalyzeOptions extends OptionValues {
+  path?: string[]
+  query?: string
+  mode?: string
+  depth?: 'quick' | 'standard' | 'deep'
+  scope?: 'full' | 'incremental'
+  format?: 'json' | 'text'
+  output?: string
+}
+
+interface SotOptions extends OptionValues {
+  scope?: 'full' | 'incremental'
+  updateIndex?: boolean
+}
+
+interface SddSpecOptions extends OptionValues {
+  title?: string
+  project?: string
+  context?: string
+  requirement?: string[]
+}
+
+interface SddApproveOptions extends OptionValues {
+  id: string
+  type?: string
+}
+
+interface SddDesignOptions extends OptionValues {
+  specId: string
+}
+
+interface SddTasksOptions extends OptionValues {
+  designId: string
+}
+
+interface ImpactOptions extends OptionValues {
+  description?: string
+  files: string[]
+  depth?: 'quick' | 'full'
+  specIds?: string
+}
+
+interface MemorySetOptions extends OptionValues {
+  kind?: string
+  anchor?: string
+  anchorType?: string
+  content?: string
+}
+
+interface MemoryGetOptions extends OptionValues {
+  anchor: string
+  anchorType?: string
+}
+
+interface MemorySearchOptions extends OptionValues {
+  query: string
+}
+
+interface RepoAddOptions extends OptionValues {
+  name: string
+  path: string
+  branch?: string
+}
+
+interface RepoRemoveOptions extends OptionValues {
+  name: string
+}
+
+interface RepoQueryOptions extends OptionValues {
+  query: string
+  repos?: string[]
+}
+
 import { ObsidianVault } from '@/knowledge/vault'
 import { createEmbedder } from '@/knowledge/embedder'
 import { SemanticSearch } from '@/knowledge/search'
+import { ApprovalGate } from '@/orchestrator/approval'
 import { resolveIndexDir, resolveProjectRoot, resolveVaultRoot } from '@/knowledge/paths'
 import { lintWiki } from '@/knowledge/wiki-ops'
 import { MCPServer } from '@/mcp/server'
@@ -922,6 +998,476 @@ program
       console.log(`  ✓ ${id}: ${result}`)
     }
     console.log(`\n${orchestrator.summary()}`)
+  })
+
+// ── Static Analysis ──
+program
+  .command('analyze')
+  .description('Static code analysis: code graph, routes, models')
+  .option('--path <paths...>', 'Paths to analyze (default: src)')
+  .option('--query <query>', 'Query the code graph')
+  .option('--mode <mode>', 'Graph query mode: symbol|callers|callees|routes')
+  .action(async (opts) => {
+    const o = opts as AnalyzeOptions
+    const projectRoot = resolveProjectRoot()
+    const { analyzeProject } = await import('@/static-analysis')
+    const paths = o.path?.length ? o.path : [projectRoot + '/src']
+
+    if (o.query) {
+      const { analyzeProject: ap2 } = await import('@/static-analysis')
+      const result = await ap2(paths, { include: [`**/*${o.query}*`] })
+      const nodes = Array.from(result.graph.nodes.values())
+      const mode = o.mode || 'symbol'
+      let matched = nodes.filter((n) => n.name.toLowerCase().includes(o.query!.toLowerCase()))
+      if (mode === 'callers') {
+        const targetIds = new Set(matched.map((m) => m.id))
+        matched = nodes.filter((n) =>
+          result.graph.edges.some((e) => targetIds.has(e.target) && e.source === n.id)
+        )
+      } else if (mode === 'callees') {
+        const sourceIds = new Set(matched.map((m) => m.id))
+        matched = nodes.filter((n) =>
+          result.graph.edges.some((e) => sourceIds.has(e.source) && e.target === n.id)
+        )
+      }
+      console.log(chalk.bold.cyan(`\n🔍 Code graph query: "${o.query}" (mode: ${mode})\n`))
+      for (const n of matched.slice(0, 30)) {
+        console.log(`  [${n.kind}] ${n.name}`)
+        if (n.filePath) console.log(`    → ${n.filePath}`)
+      }
+      console.log(chalk.green(`\n${matched.length} matches`))
+    } else {
+      const result = await analyzeProject(paths)
+      console.log(chalk.bold.cyan('\n📊 Code Analysis Result\n'))
+      console.log(`  Files:     ${result.summary.totalFiles}`)
+      console.log(`  Nodes:     ${result.summary.totalNodes}`)
+      console.log(`  Edges:     ${result.summary.totalEdges}`)
+      console.log(`  Routes:    ${result.summary.totalRoutes}`)
+      console.log(`  Models:    ${result.summary.totalModels}`)
+    }
+  })
+
+// ── SOT Generator ──
+program
+  .command('sot')
+  .description('Generate Service Encyclopedia (SOT) from code analysis')
+  .option('--scope <scope>', 'full|incremental', 'full')
+  .option('--update-index', 'Update wiki index', false)
+  .action(async (opts) => {
+    const o = opts as SotOptions
+    const projectRoot = resolveProjectRoot()
+    const vaultRoot = resolveVaultRoot()
+    const vault = new ObsidianVault(vaultRoot)
+    const embedder = createEmbedder()
+    const search = new SemanticSearch(embedder, { indexDir: resolveIndexDir(vaultRoot), vaultRoot })
+    const { generateAndStoreSot } = await import('@/knowledge/sot-generator')
+
+    console.log(chalk.bold.cyan('\n📖 Generating Service Encyclopedia...\n'))
+    const result = await generateAndStoreSot(vault, search, {
+      projectRoots: [projectRoot],
+      updateIndex: o.updateIndex,
+    })
+
+    if (result.ok) {
+      console.log(chalk.green(`\n✓ SOT generated successfully\n`))
+      for (const p of result.pages) console.log(`  ✓ ${p}`)
+    } else {
+      console.log(chalk.red('\n✗ SOT generation failed\n'))
+      for (const e of result.errors) console.log(`  - ${e}`)
+    }
+  })
+
+// ── SDD Pipeline ──
+const sddCmd = program.command('sdd').description('SDD Pipeline: spec → design → tasks')
+
+sddCmd
+  .command('status')
+  .description('Show SDD pipeline status')
+  .action(async () => {
+    const projectRoot = resolveProjectRoot()
+    const approval = new ApprovalGate(projectRoot)
+    await approval.load()
+    const { SddPipeline } = await import('@/sdd/pipeline')
+    const pipeline = new SddPipeline(projectRoot, approval)
+    const states = await pipeline.getState()
+
+    console.log(chalk.bold.cyan('\n📋 SDD Pipeline Status\n'))
+    if (states.length === 0) {
+      console.log('  No SDD sessions found.')
+    }
+    for (const s of states) {
+      console.log(`\n  Spec: ${s.spec?.title || 'unknown'} [${s.spec?.status}]`)
+      console.log(`    ID:     ${s.spec?.id}`)
+      console.log(`    Stage:  ${s.currentStage}`)
+      if (s.design) {
+        console.log(`  Design: ${s.design.id} [${s.design.status}]`)
+        if (s.design.approvedRevision)
+          console.log(`    Approved: ${s.design.approvedRevision.slice(0, 8)}`)
+      }
+    }
+  })
+
+sddCmd
+  .command('spec')
+  .description('Create new SDD spec (PRD + User Stories)')
+  .option('--title <title>', 'Spec title', 'New Feature')
+  .option('--project <project>', 'Project name', 'default')
+  .option('--context <context>', 'Product context', '')
+  .option('--requirement <req...>', 'Requirements (format: id:priority:description)')
+  .action(async (opts) => {
+    const o = opts as SddSpecOptions
+    const projectRoot = resolveProjectRoot()
+    const approval = new ApprovalGate(projectRoot)
+    await approval.load()
+    const { SddPipeline } = await import('@/sdd/pipeline')
+
+    const requirements = (o.requirement || []).map((r: string) => {
+      const [id, priority, ...descParts] = r.split(':')
+      return { id, priority: priority as 'P0' | 'P1' | 'P2', description: descParts.join(':') }
+    })
+
+    const pipeline = new SddPipeline(projectRoot, approval)
+    const state = await pipeline.createSpec({
+      project: o.project || 'default',
+      title: o.title || 'New Feature',
+      productContext: o.context || '',
+      requirements,
+    })
+
+    console.log(chalk.bold.cyan('\n📝 SDD Spec Created\n'))
+    console.log(`  ID:     ${state.spec?.id}`)
+    console.log(`  Status: ${state.spec?.status}`)
+    console.log(`  PRD:    ${state.spec?.prdPath}`)
+    console.log(`  Stories: ${state.spec?.storiesPath}`)
+    console.log(chalk.green('\n✓ Use "aio sdd approve" to approve, then "aio sdd design"\n'))
+  })
+
+sddCmd
+  .command('approve')
+  .description('Approve SDD spec or design')
+  .option('--id <id>', 'Spec/Design ID')
+  .option('--type <type>', 'spec|design', 'spec')
+  .action(async (opts) => {
+    const o = opts as SddApproveOptions
+    const projectRoot = resolveProjectRoot()
+    const approval = new ApprovalGate(projectRoot)
+    await approval.load()
+    const { SddPipeline } = await import('@/sdd/pipeline')
+
+    const pipeline = new SddPipeline(projectRoot, approval)
+    if (o.type === 'spec') {
+      const state = await pipeline.approveSpec(o.id || '')
+      console.log(chalk.green(`\n✓ Spec ${o.id} approved: ${state.spec?.status}`))
+    } else {
+      const state = await pipeline.approveDesign(o.id || '', [], undefined)
+      console.log(chalk.green(`\n✓ Design ${o.id} approved: ${state.design?.status}`))
+    }
+  })
+
+sddCmd
+  .command('design')
+  .description('Create system design from approved spec')
+  .option('--spec-id <id>', 'Spec ID')
+  .action(async (opts) => {
+    const o = opts as SddDesignOptions
+    const projectRoot = resolveProjectRoot()
+    const approval = new ApprovalGate(projectRoot)
+    await approval.load()
+    const { SddPipeline } = await import('@/sdd/pipeline')
+
+    const pipeline = new SddPipeline(projectRoot, approval)
+    const state = await pipeline.createDesign(o.specId || '')
+
+    console.log(chalk.bold.cyan('\n🎨 System Design Created\n'))
+    console.log(`  Design ID: ${state.design?.id}`)
+    console.log(`  Path:      ${state.design?.systemDesignPath}`)
+    console.log(
+      chalk.green('\n✓ Review system_design.md, then "aio sdd approve --type design --id <id>"\n')
+    )
+  })
+
+sddCmd
+  .command('tasks')
+  .description('Generate tasks from approved design')
+  .option('--design-id <id>', 'Design ID')
+  .action(async (opts) => {
+    const o = opts as SddTasksOptions
+    const projectRoot = resolveProjectRoot()
+    const approval = new ApprovalGate(projectRoot)
+    await approval.load()
+    const { SddPipeline } = await import('@/sdd/pipeline')
+
+    const pipeline = new SddPipeline(projectRoot, approval)
+    const state = await pipeline.generateTasks(o.designId || '')
+
+    console.log(chalk.bold.cyan('\n📋 Tasks Generated\n'))
+    console.log(`  Design ID:  ${state.design?.id}`)
+    console.log(`  Tasks Path: ${state.tasks?.tasksPath}`)
+    console.log(`  Readiness: ${state.tasks?.executionReadiness}`)
+    if (state.error) console.log(chalk.yellow(`  Warning: ${state.error}`))
+  })
+
+// ── Impact Analysis ──
+program
+  .command('impact')
+  .description('Change impact analysis')
+  .option('--description <desc>', 'Change description')
+  .option('--files <paths...>', 'Affected files')
+  .option('--depth <depth>', 'quick|full', 'quick')
+  .action(async (opts) => {
+    const o = opts as ImpactOptions
+    const projectRoot = resolveProjectRoot()
+    const { ImpactAnalyzer } = await import('@/impact')
+    const analyzer = new ImpactAnalyzer({ projectRoot, roots: [projectRoot] })
+
+    console.log(chalk.bold.cyan('\n🔍 Analyzing change impact...\n'))
+    const dossier = await analyzer.analyze({
+      changeDescription: o.description || 'Manual analysis',
+      affectedFiles: o.files,
+      depth: o.depth,
+    })
+
+    console.log(`  Dossier ID:    ${dossier.id}`)
+    console.log(`  Status:       ${dossier.status}`)
+    console.log(`  Surfaces:     ${dossier.surfaces.length}`)
+    console.log(`  Evidence:     ${dossier.evidenceMatrix.length}`)
+    console.log(
+      `  Confirmed:    ${dossier.evidenceMatrix.filter((e) => e.coverage === 'confirmed-path').length}`
+    )
+    console.log(
+      `  Partial:      ${dossier.evidenceMatrix.filter((e) => e.coverage === 'partial-path').length}`
+    )
+    console.log(
+      `  Candidate:    ${dossier.evidenceMatrix.filter((e) => e.coverage === 'candidate').length}`
+    )
+
+    console.log(chalk.green('\n✓ Use "aio impact --description" with files for full analysis\n'))
+  })
+
+// ── Memory Layer ──
+const memoryCmd = program.command('memory').description('Memory layer management')
+
+memoryCmd
+  .command('set')
+  .description('Save a memory')
+  .option('--kind <kind>', 'why|correction|constraint|context', 'context')
+  .option('--anchor <anchor>', 'Anchor ID (document path or spec ID)')
+  .option('--anchor-type <type>', 'document|epic|spec|code', 'document')
+  .option('--content <content>', 'Memory content')
+  .action(async (opts) => {
+    const o = opts as MemorySetOptions
+    const projectRoot = resolveProjectRoot()
+    const { MemoryStore } = await import('@/memory')
+    const store = new MemoryStore(projectRoot)
+
+    const kindVal = o.kind ?? 'context'
+    const anchorTypeVal = o.anchorType ?? 'document'
+    const entry = await store.set(
+      kindVal as 'why' | 'correction' | 'constraint' | 'context',
+      anchorTypeVal as 'document' | 'epic' | 'spec' | 'code',
+      o.anchor || 'default',
+      o.content || '',
+      'cli'
+    )
+
+    console.log(chalk.green(`\n✓ Memory saved: ${entry.id} (v${entry.version})\n`))
+  })
+
+memoryCmd
+  .command('get')
+  .description('Get memories for an anchor')
+  .option('--anchor <anchor>', 'Anchor ID')
+  .option('--anchor-type <type>', 'document|epic|spec|code', 'document')
+  .action(async (opts) => {
+    const o = opts as MemoryGetOptions
+    const projectRoot = resolveProjectRoot()
+    const { MemoryStore } = await import('@/memory')
+    const store = new MemoryStore(projectRoot)
+
+    const anchorTypeVal = o.anchorType ?? 'document'
+    const entries = await store.getByAnchor(
+      anchorTypeVal as 'document' | 'epic' | 'spec' | 'code',
+      o.anchor || 'default'
+    )
+    console.log(chalk.bold.cyan(`\n📝 Memories for ${anchorTypeVal}:${o.anchor}\n`))
+    for (const e of entries) {
+      console.log(`  [${e.kind}] v${e.version} (${e.provenance.confidence})`)
+      console.log(`  ${e.content.slice(0, 80)}${e.content.length > 80 ? '...' : ''}`)
+      console.log()
+    }
+  })
+
+memoryCmd
+  .command('search')
+  .description('Search memories')
+  .option('--query <query>', 'Search query')
+  .action(async (opts) => {
+    const o = opts as MemorySearchOptions
+    const projectRoot = resolveProjectRoot()
+    const { MemoryStore } = await import('@/memory')
+    const store = new MemoryStore(projectRoot)
+
+    const results = await store.search(o.query || '')
+    console.log(chalk.bold.cyan(`\n🔍 Memory search: "${o.query}"\n`))
+    for (const r of results.slice(0, 20)) {
+      console.log(`  [${r.kind}] ${r.anchorType}:${r.anchorId} (${r.score.toFixed(1)})`)
+      console.log(`  ${r.snippet.slice(0, 60)}...`)
+      console.log()
+    }
+  })
+
+memoryCmd
+  .command('list')
+  .description('List all memories')
+  .action(async () => {
+    const projectRoot = resolveProjectRoot()
+    const { MemoryStore } = await import('@/memory')
+    const store = new MemoryStore(projectRoot)
+    const count = await store.count()
+    console.log(chalk.green(`\n✓ Total memories: ${count}\n`))
+  })
+
+// ── Multi-Repo ──
+const repoCmd = program.command('repo').description('Multi-repository management')
+
+repoCmd
+  .command('list')
+  .description('List registered repositories')
+  .action(async () => {
+    const projectRoot = resolveProjectRoot()
+    const configPath = path.join(projectRoot, '.aio', 'repos.json')
+    const fs2 = await import('node:fs/promises')
+    interface RepoEntry {
+      name: string
+      path: string
+      branch?: string
+      analyze?: boolean
+    }
+    try {
+      const data = await fs2.readFile(configPath, 'utf-8')
+      const config = JSON.parse(data) as { repositories?: RepoEntry[] }
+      console.log(chalk.bold.cyan('\n📦 Registered Repositories\n'))
+      for (const r of config.repositories || []) {
+        console.log(`  ${r.name}`)
+        console.log(`    Path:   ${r.path}`)
+        console.log(`    Branch: ${r.branch}`)
+        console.log(`    Active: ${r.analyze}`)
+        console.log()
+      }
+    } catch {
+      console.log('  No repositories registered.')
+    }
+  })
+
+repoCmd
+  .command('add')
+  .description('Register a repository')
+  .option('--name <name>', 'Repository name')
+  .option('--path <path>', 'Local path or git URL')
+  .option('--branch <branch>', 'Branch', 'main')
+  .action(async (opts) => {
+    const o = opts as RepoAddOptions
+    const projectRoot = resolveProjectRoot()
+    const configPath = path.join(projectRoot, '.aio', 'repos.json')
+    const fs2 = await import('node:fs/promises')
+    interface RepoEntry {
+      name: string
+      path: string
+      branch: string
+      analyze: boolean
+    }
+    let config: { repositories: RepoEntry[] } = { repositories: [] }
+    try {
+      const data = await fs2.readFile(configPath, 'utf-8')
+      config = JSON.parse(data) as { repositories: RepoEntry[] }
+    } catch {
+      /* fresh */
+    }
+
+    const repo: RepoEntry = {
+      name: o.name,
+      path: o.path,
+      branch: o.branch || 'main',
+      analyze: true,
+    }
+    const existing = config.repositories.findIndex((r) => r.name === o.name)
+    if (existing >= 0) config.repositories[existing] = repo
+    else config.repositories.push(repo)
+
+    await fs2.mkdir(path.dirname(configPath), { recursive: true })
+    await fs2.writeFile(configPath, JSON.stringify(config, null, 2))
+    console.log(chalk.green(`\n✓ Repository "${o.name}" registered\n`))
+  })
+
+repoCmd
+  .command('remove')
+  .description('Remove a repository')
+  .option('--name <name>', 'Repository name')
+  .action(async (opts) => {
+    const o = opts as RepoRemoveOptions
+    const projectRoot = resolveProjectRoot()
+    const configPath = path.join(projectRoot, '.aio', 'repos.json')
+    const fs2 = await import('node:fs/promises')
+    interface RepoEntry {
+      name: string
+    }
+    try {
+      const data = await fs2.readFile(configPath, 'utf-8')
+      const config = JSON.parse(data) as { repositories: RepoEntry[] }
+      config.repositories = config.repositories.filter((r) => r.name !== o.name)
+      await fs2.writeFile(configPath, JSON.stringify(config, null, 2))
+      console.log(chalk.green(`\n✓ Repository "${o.name}" removed\n`))
+    } catch {
+      console.log(chalk.yellow('\n⚠ No repositories registered\n'))
+    }
+  })
+
+repoCmd
+  .command('query')
+  .description('Search across all repositories')
+  .option('--query <query>', 'Search query')
+  .option('--repos <names...>', 'Repository names (default: all)')
+  .action(async (opts) => {
+    const o = opts as RepoQueryOptions
+    const projectRoot = resolveProjectRoot()
+    const configPath = path.join(projectRoot, '.aio', 'repos.json')
+    const fs2 = await import('node:fs/promises')
+    const { analyzeProject } = await import('@/static-analysis')
+
+    interface RepoEntry {
+      name: string
+      path: string
+      branch?: string
+      analyze: boolean
+    }
+    let config: { repositories: RepoEntry[] } = { repositories: [] }
+    try {
+      const data = await fs2.readFile(configPath, 'utf-8')
+      config = JSON.parse(data) as { repositories: RepoEntry[] }
+    } catch {
+      console.log(chalk.yellow('\n⚠ No repositories registered\n'))
+      return
+    }
+
+    const targetRepos = o.repos?.length
+      ? config.repositories.filter((r) => o.repos!.includes(r.name))
+      : config.repositories
+
+    console.log(chalk.bold.cyan(`\n🔍 Cross-repo search: "${o.query}"\n`))
+    for (const repo of targetRepos) {
+      if (!repo.analyze) continue
+      try {
+        const result = await analyzeProject([repo.path], {
+          include: [`**/*${o.query}*`],
+        })
+        const count = result.graph.nodes.size
+        if (count > 0) {
+          console.log(`  ${repo.name}: ${count} matches`)
+        }
+      } catch {
+        console.log(`  ${repo.name}: (unavailable)`)
+      }
+    }
   })
 
 program.parseAsync(process.argv).catch(console.error)

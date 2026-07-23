@@ -103,6 +103,53 @@ const TOOLS: { category: string; items: ToolItem[] }[] = [
       { name: 'store_knowledge', desc: 'Deprecated — use ingest_pipeline / file_back', params: 'title, content, tags?', exampleKo: '', exampleEn: '' },
     ],
   },
+  {
+    category: 'Static Analysis (정적 분석)',
+    items: [
+      { name: 'analyze_codebase', desc: 'Parse source code → code graph, routes, data models', params: 'paths?, include?, exclude?', exampleKo: '"코드 분석해줘"', exampleEn: '"analyze the codebase" | "analyze_codebase({ paths: [\'src\'] })"' },
+      { name: 'query_code_graph', desc: 'Query code graph: symbol lookup, callers/callees, routes', params: 'query, mode? (symbol|callers|callees|routes), max_depth?', exampleKo: '"PaymentService 호출하는 곳 찾아줘"', exampleEn: '"find callers of PaymentService" | "query_code_graph({ query: \'PaymentService\', mode: \'callers\' })"' },
+      { name: 'generate_sot', desc: 'Generate service encyclopedia (SOT) from static analysis', params: 'scope? (full|incremental), overwrite?', exampleKo: '"서비스 백과사전 생성해줘"', exampleEn: '"generate the service encyclopedia" | "generate_sot()"' },
+      { name: 'code_graph_status', desc: 'Last analysis status — file count, node count, route count', params: '', exampleKo: '"코드 그래프 상태"', exampleEn: '"code graph status" | "code_graph_status()"' },
+    ],
+  },
+  {
+    category: 'SDD Pipeline (Spec-Driven Development)',
+    items: [
+      { name: 'sdd_spec', desc: 'Create SDD spec (PRD + User Stories) with approval gate', params: 'project, title, product_context, requirements[]', exampleKo: '"SDD 스펙 생성해줘"', exampleEn: '"create an SDD spec" | "sdd_spec({ project, title, requirements })"' },
+      { name: 'sdd_design', desc: 'Create system design from approved spec (evidence-gated)', params: 'spec_id', exampleKo: '"시스템 디자인 생성해줘"', exampleEn: '"create system design" | "sdd_design({ spec_id })"' },
+      { name: 'sdd_tasks', desc: 'Generate implementation tasks from approved design', params: 'design_id', exampleKo: '"태스크 생성해줘"', exampleEn: '"generate tasks" | "sdd_tasks({ design_id })"' },
+      { name: 'sdd_approve', desc: 'Approve SDD spec stage', params: 'id, type (spec), confirm_code?', exampleKo: '"스펙 승인"', exampleEn: '"approve spec" | "sdd_approve({ id, type: \'spec\' })"' },
+      { name: 'sdd_approve_design', desc: 'Approve SDD design with evidence', params: 'design_id, evidence[]', exampleKo: '"디자인 승인"', exampleEn: '"approve design" | "sdd_approve_design({ design_id, evidence })"' },
+      { name: 'sdd_status', desc: 'SDD pipeline status overview', params: '', exampleKo: '"SDD 상태"', exampleEn: '"sdd status" | "sdd_status()"' },
+    ],
+  },
+  {
+    category: 'Impact Analysis (영향도 분석)',
+    items: [
+      { name: 'impact_analyze', desc: 'Analyze change impact → dossier with evidence matrix', params: 'change_description, affected_files?, spec_ids?, depth?', exampleKo: '"이 변경의 영향도 분석해줘"', exampleEn: '"analyze impact of this change" | "impact_analyze({ change_description })"' },
+      { name: 'impact_dossier_get', desc: 'Get existing impact dossier by ID', params: 'dossier_id', exampleKo: '"dossier 조회"', exampleEn: '"get dossier" | "impact_dossier_get({ dossier_id })"' },
+      { name: 'impact_dossier_list', desc: 'List all impact dossiers', params: '', exampleKo: '"dossier 목록"', exampleEn: '"list dossiers" | "impact_dossier_list()"' },
+    ],
+  },
+  {
+    category: 'Memory Layer (메모리)',
+    items: [
+      { name: 'memory_set', desc: 'Record a memory (why/correction/constraint/context) anchored to a document', params: 'kind, anchor_type, anchor_id, content, confidence?', exampleKo: '"이 문서에 메모 남겨줘"', exampleEn: '"save a memory" | "memory_set({ kind: \'why\', anchor_id, content })"' },
+      { name: 'memory_get', desc: 'Get all memories for an anchor', params: 'anchor_type, anchor_id, include_superseded?', exampleKo: '"메모 조회"', exampleEn: '"get memories" | "memory_get({ anchor_type, anchor_id })"' },
+      { name: 'memory_search', desc: 'Search memory contents', params: 'query, kinds?', exampleKo: '"메모 검색"', exampleEn: '"search memories" | "memory_search({ query })"' },
+      { name: 'memory_update', desc: 'Update a memory (new version, supersedes old)', params: 'id, content, confidence?', exampleKo: '"메모 수정"', exampleEn: '"update memory" | "memory_update({ id, content })"' },
+      { name: 'memory_delete', desc: 'Delete a memory (soft by default)', params: 'id, permanent?', exampleKo: '"메모 삭제"', exampleEn: '"delete memory" | "memory_delete({ id })"' },
+    ],
+  },
+  {
+    category: 'Multi-Repo (멀티 레포)',
+    items: [
+      { name: 'repo_register', desc: 'Register a repository for cross-repo analysis', params: 'name, path?, url?, branch?', exampleKo: '"레포 등록"', exampleEn: '"register repo" | "repo_register({ name, path })"' },
+      { name: 'repo_list', desc: 'List registered repositories', params: '', exampleKo: '"레포 목록"', exampleEn: '"list repos" | "repo_list()"' },
+      { name: 'cross_repo_query', desc: 'Search across all registered repositories', params: 'query, repos?, mode? (symbol|dependency|impact)', exampleKo: '"전체 레포에서 검색"', exampleEn: '"cross-repo search" | "cross_repo_query({ query })"' },
+      { name: 'repo_remove', desc: 'Remove a registered repository', params: 'name', exampleKo: '"레포 제거"', exampleEn: '"remove repo" | "repo_remove({ name })"' },
+    ],
+  },
 ]
 
 const RALPH_SECTION_KO = `## Ralph Loop (재시도 + 검증 엔진)
@@ -183,24 +230,40 @@ See the project README "Environment variables" section for the full list.
 
 const WORKFLOWS = [
   {
-    title: 'New project onboarding',
+    title: ['신규 프로젝트 온보딩', 'New project onboarding'],
     steps: ['aio init → MCP 연결 → "이 프로젝트 구조를 위키에 저장해줘" → "도메인 분석해서 하네스 구성해줘"'],
   },
   {
-    title: 'Feature implementation',
+    title: ['기능 구현', 'Feature implementation'],
     steps: ['"컨텍스트 줘" (domain_context) → "계획 세워줘" (plan_task) → "병렬 실행해줘" (execute_dag) → "결과 file_back 해줘" → "위키 lint"'],
   },
   {
-    title: 'Parallel research',
+    title: ['병렬 리서치', 'Parallel research'],
     steps: ['"세션 3개 띄워서 각각 분석해줘" → "인박스 확인" (check_inbox) → "결과 종합해줘" (synthesize_results)'],
   },
   {
-    title: 'Bug hunting',
+    title: ['버그 헌팅', 'Bug hunting'],
     steps: ['"이슈 스캔해줘" (scan_issues) → "결과 수집해줘" (collect_results)'],
   },
   {
-    title: 'Document ingest',
+    title: ['문서 Ingest', 'Document ingest'],
     steps: ['"이 README ingest 해줘" (ingest_pipeline) → "위키에서 검색해줘" (query_wiki)'],
+  },
+  {
+    title: ['코드 분석', 'Code analysis'],
+    steps: ['"코드 분석해줘" (analyze_codebase) → "PaymentService 호출하는 곳 찾아줘" (query_code_graph) → "서비스 백과사전 생성해줘" (generate_sot)'],
+  },
+  {
+    title: ['명세 기반 개발', 'Spec-Driven Development'],
+    steps: ['"SDD 스펙 생성해줘" (sdd_spec) → "스펙 승인" (sdd_approve) → "디자인 생성해줘" (sdd_design) → "증거 수집 후 디자인 승인" (sdd_approve_design) → "태스크 생성해줘" (sdd_tasks)'],
+  },
+  {
+    title: ['영향도 분석', 'Impact analysis'],
+    steps: ['"이 변경사항 영향도 분석해줘" (impact_analyze) → "dossier 상세 조회" (impact_dossier_get)'],
+  },
+  {
+    title: ['메모 관리', 'Memory management'],
+    steps: ['"이 문서에 왜 이렇게 했는지 메모 남겨줘" (memory_set) → "메모 검색" (memory_search)'],
   },
 ]
 
@@ -303,6 +366,11 @@ aio-mcp는 **AI 어시스턴트(Cursor, Claude Code, OpenCode 등)를 위한 프
 | **Session** | 독립적인 AI 작업자. 각각 별도 컨텍스트로 병렬 작업 | 병렬 부하 직원 |
 | **DAG + Ralph** | 태스크 의존성 그래프 → 위상정렬 → 레이어별 병렬 실행 + 재시도/검증 | 공정 관리도 |
 | **Branch Hunt** | 코드 이슈를 DFS로 탐색 → 세션으로 분기 → 결과 수집 | 버그 사냥 |
+| **Static Analysis** | 소스 코드 파싱 → 코드 그래프, 라우트, 데이터 모델 | 코드 지도 |
+| **SDD Pipeline** | Spec → Design → Tasks 승인 기반 파이프라인 | 명세 기반 개발 |
+| **Impact Analysis** | 변경 제안 → 영향도 분석 + 증거 매트릭스 | 영향도 분석 |
+| **Memory Layer** | why/correction/constraint/context 메모를 문서에 연결 | 지식 메모 |
+| **Multi-Repo** | 여러 저장소 간 심볼/의존성 검색 | 멀티 레포 |
 | **Harness** | Wiki 지식 → AGENTS.md / 룰 / 훅 / MCP 설정 | 프로젝트 인수인계 |
 
 ### 프로젝트 활용 프로세스 (6단계)
@@ -370,6 +438,11 @@ aio-mcp is a **project knowledge + orchestration tool for AI assistants** (Curso
 | **Session** | Independent AI workers, each with separate context, running in parallel | Parallel employees |
 | **DAG + Ralph** | Task dependency graph → topological sort → layer-parallel execution + retry/verify | Manufacturing flowchart |
 | **Branch Hunt** | DFS issue scan → branch into sessions → collect results | Bug hunting |
+| **Static Analysis** | Parse source code → code graph, routes, data models | Code map |
+| **SDD Pipeline** | Spec → Design → Tasks with approval gates | Spec-driven development |
+| **Impact Analysis** | Change proposal → impact dossier + evidence matrix | Impact analysis |
+| **Memory Layer** | why/correction/constraint/context notes anchored to docs | Knowledge memory |
+| **Multi-Repo** | Cross-repository symbol/dependency search | Multi-repo |
 | **Harness** | Wiki knowledge → AGENTS.md / rules / hooks / MCP configs | Project handoff docs |
 
 ### Project Lifecycle (6 Phases)
@@ -505,10 +578,16 @@ function toolTable(category: { category: string; items: ToolItem[] }, locale: 'k
   return md
 }
 
-function workflowsSection(title: string, workflows: { title: string; steps: string[] }[]): string {
+interface WorkflowDef {
+  title: string[]
+  steps: string[]
+}
+
+function workflowsSection(title: string, workflows: WorkflowDef[], locale: 'ko' | 'en'): string {
   let md = `## Workflow Examples\n\n`
   for (const w of workflows) {
-    md += `### ${w.title}\n\n`
+    const t = locale === 'ko' ? w.title[0] : w.title[1]
+    md += `### ${t}\n\n`
     for (const s of w.steps) {
       md += `1. ${s}\n`
     }
@@ -520,11 +599,8 @@ function workflowsSection(title: string, workflows: { title: string; steps: stri
 export async function generateDocs(): Promise<{ ko: string; en: string }> {
   const toolsKo = TOOLS.map(c => toolTable(c, 'ko')).join('\n')
   const toolsEn = TOOLS.map(c => toolTable(c, 'en')).join('\n')
-  const workflowsKo = workflowsSection('워크플로우 예시', WORKFLOWS)
-  const workflowsEn = workflowsSection('Workflow Examples', WORKFLOWS.map(w => ({
-    title: w.title,
-    steps: w.steps.map(s => s.replace(/「.*?」/g, '')),
-  })))
+  const workflowsKo = workflowsSection('워크플로우 예시', WORKFLOWS, 'ko')
+  const workflowsEn = workflowsSection('Workflow Examples', WORKFLOWS, 'en')
 
   const ko = KO_INTRO + KO_PHASES + RALPH_SECTION_KO + ENV_SECTION_KO + toolsKo + workflowsKo
   const en = EN_INTRO + EN_PHASES + RALPH_SECTION_EN + ENV_SECTION_EN + toolsEn + workflowsEn

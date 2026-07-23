@@ -1,0 +1,7 @@
+export { ImpactAnalyzer } from './analyzer'
+export { readBoundedSource, findRelatedFiles } from './source-scanner'
+export { collectEvidence, categorizeSurfaceAction } from './evidence-matrix'
+export { traverseCrossEpic, findOverlappingSurfaces } from './cross-epic'
+export type { EpicNode, CrossEpicTraversal } from './cross-epic'
+export type { BoundedSourceRead, ScanConfig } from './source-scanner'
+export type { EvidenceCollection } from './evidence-matrix'

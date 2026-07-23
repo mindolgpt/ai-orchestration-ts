@@ -23,6 +23,13 @@ import {
 } from '@/mcp/tools'
 import { registerOpsTools } from '@/mcp/tools/ops-tools'
 import { registerHarnessTools } from '@/mcp/tools/harness-tools'
+import {
+  registerAnalysisTools,
+  registerSddTools,
+  registerImpactTools,
+  registerMemoryTools,
+  registerRepoTools,
+} from '@/mcp/tools'
 import { registerMcpResources } from '@/mcp/resources'
 import { assertSseAuthorized, resolveSseAuthRequirement } from '@/security/sse-auth'
 
@@ -115,6 +122,11 @@ export class MCPServer {
       branchHunt: this.branchHunt,
       approval: this.approval,
     })
+    registerAnalysisTools(this.server)
+    registerSddTools(this.server, this.approval)
+    registerImpactTools(this.server)
+    registerMemoryTools(this.server)
+    registerRepoTools(this.server)
   }
 
   async runStdio(): Promise<void> {

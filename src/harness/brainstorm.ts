@@ -385,7 +385,10 @@ function buildAgentInstructions(
   ].join('\n')
 }
 
-function buildMarkdown(result: Omit<BrainstormResult, 'markdown' | 'agent_instructions'>): string {
+function buildMarkdown(
+  result: Omit<BrainstormResult, 'markdown' | 'agent_instructions'>,
+  answers?: BrainstormAnswers
+): string {
   const lines = [
     `# Development brainstorm — ${result.topic}`,
     '',
@@ -399,13 +402,43 @@ function buildMarkdown(result: Omit<BrainstormResult, 'markdown' | 'agent_instru
     '## Wiki context',
     result.context_excerpt.slice(0, 2000),
     '',
+  ]
+
+  // === Decisions section (사용자 답변) ===
+  if (answers && Object.keys(answers).length > 0) {
+    const ANSWER_LABELS: Record<string, string> = {
+      scale: '목표 규모',
+      phase: '프로젝트 단계',
+      plan_goal: '핵심 목표',
+      plan_mvp: 'MVP 범위',
+      plan_metric: '성공 지표',
+      arch_style: '배포 단위/아키텍처',
+      sec_data: '민감 데이터 유형',
+      devops_env: '환경 구성',
+      obs_alert: '알람 시나리오',
+      consistency: '일관성 모델',
+      traffic: '예상 트래픽',
+      preferred_store: '선호 저장소',
+      constraints: '제약사항',
+      team_experience: '팀 경험',
+    }
+    lines.push('## Decisions', '')
+    for (const [key, val] of Object.entries(answers)) {
+      if (!val) continue
+      const label = ANSWER_LABELS[key] || key
+      lines.push(`- **${label}**: ${val}`)
+    }
+    lines.push('')
+  }
+
+  lines.push(
     '## Questions',
     ...result.clarifying_questions.map(
       (q) => `### [${q.focus}] ${q.id}\n${q.question}\n_${q.why}_`
     ),
     '',
-    '## Options by area',
-  ]
+    '## Options by area'
+  )
 
   const byFocus = new Map<BrainstormFocus, BrainstormOption[]>()
   for (const o of result.options) {
@@ -588,16 +621,35 @@ export async function brainstormDesign(
   }
 
   const agent_instructions = buildAgentInstructions(topic, lenses, options, 'brief', answers)
-  const markdown = buildMarkdown(partial)
+  const markdown = buildMarkdown(partial, answers)
 
   let docs_written: string[] | undefined
   if (opts?.write_docs !== false) {
     const docsDir = path.join(root, 'docs', 'brainstorm')
     await fs.mkdir(docsDir, { recursive: true })
+    // Detect existing brainstorm doc for same topic
     const slug = topic.replace(/[^\w가-힣]+/g, '-').slice(0, 60)
-    const mdPath = path.join(docsDir, `${slug || 'session'}.md`)
-    await fs.writeFile(mdPath, markdown + '\n\n---\n\n' + agent_instructions, 'utf-8')
-    docs_written = [mdPath]
+    const fileName = `${slug || 'session'}.md`
+    try {
+      const existingFiles = await fs.readdir(docsDir)
+      const existing = existingFiles.find(
+        (f) => f.toLowerCase() === fileName.toLowerCase() || f.startsWith(slug.slice(0, 40))
+      )
+      if (existing) {
+        const mdPath = path.join(docsDir, existing)
+        await fs.writeFile(mdPath, markdown + '\n\n---\n\n' + agent_instructions, 'utf-8')
+        docs_written = [mdPath]
+      } else {
+        const mdPath = path.join(docsDir, fileName)
+        await fs.writeFile(mdPath, markdown + '\n\n---\n\n' + agent_instructions, 'utf-8')
+        docs_written = [mdPath]
+      }
+    } catch {
+      // readdir failed (dir empty or not found) — write new file
+      const mdPath = path.join(docsDir, fileName)
+      await fs.writeFile(mdPath, markdown + '\n\n---\n\n' + agent_instructions, 'utf-8')
+      docs_written = [mdPath]
+    }
   }
 
   const briefPartial = { ...partial, context_excerpt: contextExcerpt.slice(0, 4000) }

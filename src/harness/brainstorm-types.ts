@@ -52,6 +52,7 @@ export interface BrainstormAnswers {
   constraints?: string
   preferred_store?: string
   phase?: 'discovery' | 'design' | 'build' | 'ship' | 'operate'
+  [key: string]: string | undefined
 }
 
 export interface BrainstormResult {

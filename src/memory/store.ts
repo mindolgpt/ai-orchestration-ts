@@ -13,6 +13,8 @@ import {
 export class MemoryStore {
   private entries: Map<string, MemoryStoreEntry> = new Map()
   private storePath: string
+  /** Serializes read-modify-persist transactions to prevent lost writes. */
+  private writeChain: Promise<unknown> = Promise.resolve()
 
   constructor(baseDir: string) {
     this.storePath = path.join(baseDir, '.aio', 'memory.json')
@@ -38,6 +40,25 @@ export class MemoryStore {
     )
   }
 
+  /**
+   * Run a mutating transaction (load → mutate → persist) strictly serially
+   * inside this process. This is what closes the lost-write window that two
+   * concurrent `set()`/`update()`/`delete()` calls previously had.
+   *
+   * Each transaction awaits the previous one before its own load, so by the
+   * time it calls `persist()` it necessarily saw every prior mutation.
+   */
+  private transaction<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.writeChain.then(fn, fn)
+    // Swallow rejection on the chain itself so the next writer isn't blocked,
+    // but keep the per-call promise so the caller sees its own rejection.
+    this.writeChain = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
+  }
+
   async set(
     kind: MemoryKind,
     anchorType: AnchorType,
@@ -46,31 +67,33 @@ export class MemoryStore {
     author = 'user',
     confidence: Confidence = 'proposed'
   ): Promise<MemoryEntry> {
-    await this.load()
+    return this.transaction(async () => {
+      await this.load()
 
-    const existing = Array.from(this.entries.values())
-      .filter((e) => e.anchorType === anchorType && e.anchorId === anchorId && !e.supersededBy)
-      .sort((a, b) => b.version - a.version)
+      const existing = Array.from(this.entries.values())
+        .filter((e) => e.anchorType === anchorType && e.anchorId === anchorId && !e.supersededBy)
+        .sort((a, b) => b.version - a.version)
 
-    const latestVersion = existing.length > 0 ? existing[0].version : 0
+      const latestVersion = existing.length > 0 ? existing[0].version : 0
 
-    const entry: MemoryStoreEntry = {
-      id: `mem_${randomUUID().slice(0, 8)}`,
-      kind,
-      anchorType,
-      anchorId,
-      content,
-      author,
-      confidence,
-      recordedAt: Date.now(),
-      version: latestVersion + 1,
-      supersededBy: null,
-    }
+      const entry: MemoryStoreEntry = {
+        id: `mem_${randomUUID().slice(0, 8)}`,
+        kind,
+        anchorType,
+        anchorId,
+        content,
+        author,
+        confidence,
+        recordedAt: Date.now(),
+        version: latestVersion + 1,
+        supersededBy: null,
+      }
 
-    this.entries.set(entry.id, entry)
-    await this.persist()
+      this.entries.set(entry.id, entry)
+      await this.persist()
 
-    return this.toEntry(entry)
+      return this.toEntry(entry)
+    })
   }
 
   async update(
@@ -79,30 +102,32 @@ export class MemoryStore {
     author = 'user',
     confidence?: Confidence
   ): Promise<MemoryEntry | undefined> {
-    await this.load()
+    return this.transaction(async () => {
+      await this.load()
 
-    const existing = this.entries.get(id)
-    if (!existing) return undefined
+      const existing = this.entries.get(id)
+      if (!existing) return undefined
 
-    existing.supersededBy = `mem_${randomUUID().slice(0, 8)}`
+      existing.supersededBy = `mem_${randomUUID().slice(0, 8)}`
 
-    const newEntry: MemoryStoreEntry = {
-      id: existing.supersededBy,
-      kind: existing.kind,
-      anchorType: existing.anchorType,
-      anchorId: existing.anchorId,
-      content,
-      author,
-      confidence: confidence || existing.confidence,
-      recordedAt: Date.now(),
-      version: existing.version + 1,
-      supersededBy: null,
-    }
+      const newEntry: MemoryStoreEntry = {
+        id: existing.supersededBy,
+        kind: existing.kind,
+        anchorType: existing.anchorType,
+        anchorId: existing.anchorId,
+        content,
+        author,
+        confidence: confidence || existing.confidence,
+        recordedAt: Date.now(),
+        version: existing.version + 1,
+        supersededBy: null,
+      }
 
-    this.entries.set(newEntry.id, newEntry)
-    await this.persist()
+      this.entries.set(newEntry.id, newEntry)
+      await this.persist()
 
-    return this.toEntry(newEntry)
+      return this.toEntry(newEntry)
+    })
   }
 
   async getByAnchor(
@@ -147,19 +172,21 @@ export class MemoryStore {
   }
 
   async delete(id: string, soft = true): Promise<boolean> {
-    await this.load()
+    return this.transaction(async () => {
+      await this.load()
 
-    const entry = this.entries.get(id)
-    if (!entry) return false
+      const entry = this.entries.get(id)
+      if (!entry) return false
 
-    if (soft) {
-      entry.supersededBy = '__deleted__'
-    } else {
-      this.entries.delete(id)
-    }
+      if (soft) {
+        entry.supersededBy = '__deleted__'
+      } else {
+        this.entries.delete(id)
+      }
 
-    await this.persist()
-    return true
+      await this.persist()
+      return true
+    })
   }
 
   async count(): Promise<number> {

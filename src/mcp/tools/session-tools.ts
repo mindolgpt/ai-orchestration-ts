@@ -278,7 +278,8 @@ export async function closeSession(
   sessions: Map<string, ChildSession>,
   sessionId: string,
   kill = true,
-  removeWt = false
+  removeWt = false,
+  projectRoot?: string
 ): Promise<Record<string, unknown>> {
   const session = sessions.get(sessionId)
   if (!session) return { error: `Session ${sessionId} not found` }
@@ -288,7 +289,11 @@ export async function closeSession(
   }
   let worktreeRemoved = false
   if (removeWt && session.worktreePath) {
-    const r = await removeWorktree(sessionId)
+    // sessions store their spawn-time project root on cwd when a worktree was
+    // created there; pass it through so removeWorktree looks in the right
+    // place instead of falling back to the MCP process cwd.
+    const wtRoot = projectRoot || session.cwd
+    const r = await removeWorktree(sessionId, wtRoot)
     worktreeRemoved = r.removed
   }
   sessions.delete(sessionId)
@@ -325,10 +330,18 @@ export function synthesizeResults(
     }
   })
 
-  const dagEntries = Array.from(dagResults.entries()).map(([id, result]) => ({
-    task_id: id,
-    result,
-  }))
+  const dagEntries = Array.from(dagResults.entries())
+    .filter(([key]) => {
+      // Skip no plan_id filter: include all (strip plan prefix when serializing below).
+      if (!opts?.plan_id) return true
+      // With plan_id filter: only this plan's results; ignore legacy/un-prefixed.
+      return key.startsWith(`${opts.plan_id}::`)
+    })
+    .map(([key, result]) => {
+      const sepIdx = key.indexOf('::')
+      const task_id = sepIdx >= 0 ? key.slice(sepIdx + 2) : key
+      return { task_id, result }
+    })
 
   if (format === 'json') {
     return {
@@ -367,7 +380,8 @@ export function registerSessionTools(
   sessions: Map<string, ChildSession>,
   inbox: MessageInbox,
   maxSessions: number,
-  dagResults?: Map<string, unknown>
+  dagResults?: Map<string, unknown>,
+  projectRoot?: string
 ): void {
   const results = dagResults || new Map<string, unknown>()
 
@@ -556,7 +570,8 @@ export function registerSessionTools(
     server,
     'close_session',
     {
-      description: 'Kill running process if needed and remove session; optional worktree cleanup',
+      description:
+        'Kill running process (default) and remove session; optional worktree cleanup. Pass kill:false only if you intend to leave the child process running and evict just the session record. Calls that pass remove_worktree:true will look up the worktree under this project root.',
       inputSchema: z.object({
         session_id: z.string(),
         kill: z.boolean().optional(),
@@ -572,7 +587,8 @@ export function registerSessionTools(
               sessions,
               args.session_id,
               args.kill !== false,
-              args.remove_worktree === true
+              args.remove_worktree === true,
+              projectRoot
             )
           ),
         },

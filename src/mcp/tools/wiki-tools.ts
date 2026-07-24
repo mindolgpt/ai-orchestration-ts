@@ -135,18 +135,34 @@ export function registerWikiTools(
     {
       description:
         'End-to-end ingest: ingest_raw (content or file_path) → wiki concepts → lint_wiki. ' +
-        'For NEW docs pass file_path or substantial content. ' +
-        'To re-ingest wiki from an existing raw without duplicating it, pass raw_id (skip_raw implied). ' +
+        'For NEW docs pass file_path or substantial content (>= 80 chars). ' +
+        'To re-ingest wiki from an existing raw without duplicating it, pass raw_id only — ' +
+        'skip_raw is implied and the deprecated `skip_raw` flag is not required. ' +
+        'Lint precedence: `lint_mode` wins if set; otherwise `run_lint:false`→none, ' +
+        '`run_lint:true`→full, omitted→summary. ' +
         'Never pass chat/command text as content.',
       inputSchema: z.object({
         title: z.string().optional(),
         content: z.string().optional(),
         file_path: z.string().optional(),
         source_uri: z.string().optional(),
-        raw_id: z.string().optional(),
-        skip_raw: z.boolean().optional(),
+        raw_id: z
+          .string()
+          .optional()
+          .describe('Existing raw document id to re-ingest wiki from. skip_raw is implied.'),
+        skip_raw: z
+          .boolean()
+          .optional()
+          .describe(
+            'Deprecated. Pass raw_id only; skip_raw is implied. If explicitly set, true requires raw_id.'
+          ),
         concepts: z.array(conceptSchema).optional(),
-        run_lint: z.boolean().optional(),
+        run_lint: z
+          .boolean()
+          .optional()
+          .describe(
+            'Ignored when lint_mode is set. Otherwise: false→none, true→full, omitted→summary.'
+          ),
         lint_mode: z.enum(['none', 'summary', 'full']).optional(),
         lint_deep: z.boolean().optional(),
       }),
@@ -165,7 +181,7 @@ export function registerWikiTools(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         return jsonErrorResult(msg, {
-          hint: 'ingest_pipeline needs file_path, raw_id, or substantial content',
+          hint: 'ingest_pipeline needs file_path, raw_id, or substantial content (>= 80 chars)',
           fix: 'ingest_pipeline({ file_path: "docs/x.md", concepts: [{ title, content }] })',
         })
       }

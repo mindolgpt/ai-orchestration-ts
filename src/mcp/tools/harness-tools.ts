@@ -374,7 +374,7 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
       await getEventLog(root).emit('harness.brainstorm', {
         topic: args.topic.slice(0, 80),
         status: result.status,
-        options: result.options.length,
+        options: result.options?.length ?? 0,
       })
       return json(result)
     }

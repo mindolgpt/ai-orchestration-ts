@@ -9,8 +9,6 @@ export function registerMemoryTools(server: McpServer): void {
   const root = resolveProjectRoot()
   const store = new MemoryStore(root)
 
-  void store.load()
-
   registerMcpTool(
     server,
     'memory_set',
@@ -36,6 +34,7 @@ export function registerMemoryTools(server: McpServer): void {
         args.confidence || 'proposed'
       )
       return jsonResult({
+        ok: true,
         id: entry.id,
         kind: entry.kind,
         anchor_type: entry.anchorType,
@@ -126,7 +125,7 @@ export function registerMemoryTools(server: McpServer): void {
         args.author || 'user',
         args.confidence
       )
-      if (!entry) return jsonResult({ error: `Memory ${args.id} not found` })
+      if (!entry) return jsonResult({ ok: false, error: `Memory ${args.id} not found` })
       return jsonResult({
         id: entry.id,
         version: entry.version,

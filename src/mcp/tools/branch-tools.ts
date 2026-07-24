@@ -43,7 +43,8 @@ export function registerBranchTools(
             worktree: args.worktree,
             runtime: args.runtime,
           })
-          spawned = branchHunt.getIssues().filter((i) => i.sessionId).length - before
+          const after = branchHunt.getIssues().filter((i) => i.sessionId).length
+          spawned = Math.max(0, after - before)
         }
         return {
           content: [

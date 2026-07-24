@@ -39,9 +39,29 @@ export interface ExecuteDagRunContext {
   projectRoot: string
   sessions: Map<string, ChildSession>
   inbox: MessageInbox
+  /** Shared cache of plan results, namespaced by `${planId}::${nodeId}`. */
   dagResults: Map<string, unknown>
   maxSessions: number
   approval?: ApprovalGate
+}
+
+/**
+ * Build a plan-namespaced key so results from different plans never collide on
+ * identical node ids (T1/T2/...). Plain (un-prefixed) ids are treated as
+ * legacy entries and ignored when seeding, so a fresh plan never silently
+ * "succeeds" by inheriting another plan's result.
+ */
+function dagResultsKey(planId: string, nodeId: string): string {
+  return `${planId}::${nodeId}`
+}
+
+function nodeIdsFromPrefix(dagResults: Map<string, unknown>, planId: string): string[] {
+  const prefix = `${planId}::`
+  const out: string[] = []
+  for (const k of dagResults.keys()) {
+    if (k.startsWith(prefix)) out.push(k.slice(prefix.length))
+  }
+  return out
 }
 
 export async function executeDagRun(
@@ -92,13 +112,17 @@ export async function executeDagRun(
         }
       }
       for (const [id, val] of Object.entries(seed)) {
-        dagResults.set(id, val)
+        dagResults.set(dagResultsKey(args.plan_id, id), val)
       }
     }
   }
 
-  for (const [id, val] of dagResults) {
-    if (!(id in seed)) seed[id] = val
+  // Only seed from this plan's namespaced entries; ignore other-plan and
+  // legacy (un-prefixed) keys to prevent cross-plan contamination.
+  const ownSeedIds = nodeIdsFromPrefix(dagResults, args.plan_id)
+  for (const id of ownSeedIds) {
+    const val = dagResults.get(dagResultsKey(args.plan_id, id))
+    if (val !== undefined && !(id in seed)) seed[id] = val
   }
 
   const skipAllowed = args.skip_approval === true && process.env.AIO_ALLOW_SKIP_APPROVAL === '1'
@@ -153,11 +177,12 @@ export async function executeDagRun(
 
   const run = await executor.execute(
     async (node, depResults) => {
-      if (dagResults.has(node.id) && seed[node.id] !== undefined) {
-        return dagResults.get(node.id)
+      const ownKey = dagResultsKey(args.plan_id, node.id)
+      if (dagResults.has(ownKey) && seed[node.id] !== undefined) {
+        return dagResults.get(ownKey)
       }
-      if (dagResults.has(node.id) && !promptById.get(node.id)) {
-        return { cached: true, result: dagResults.get(node.id) }
+      if (dagResults.has(ownKey) && !promptById.get(node.id)) {
+        return { cached: true, result: dagResults.get(ownKey) }
       }
 
       const prompt = promptById.get(node.id)
@@ -212,7 +237,7 @@ export async function executeDagRun(
       }
 
       const payload = result.output as { session_id: string; summary: unknown }
-      dagResults.set(node.id, payload)
+      dagResults.set(dagResultsKey(args.plan_id, node.id), payload)
       return payload
     },
     {

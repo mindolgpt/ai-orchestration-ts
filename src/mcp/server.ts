@@ -88,7 +88,14 @@ export class MCPServer {
   }
 
   private setupTools(): void {
-    registerSessionTools(this.server, this.sessions, this.inbox, this.maxSessions, this.dagResults)
+    registerSessionTools(
+      this.server,
+      this.sessions,
+      this.inbox,
+      this.maxSessions,
+      this.dagResults,
+      this.projectRoot
+    )
     registerKnowledgeTools(this.server, this.search, this.vault)
     registerDagTools(
       this.server,

@@ -118,7 +118,20 @@ export function registerSddTools(server: McpServer, approval: ApprovalGate): voi
           error: state.error,
         })
       }
-      return jsonResult({ error: 'Use sdd_approve_design for design approval' })
+      // type === 'design': route to approveDesign so callers can approve a
+      // design with this tool too. Without evidence the self-review/readiness
+      // gates will refuse the approval with a descriptive error — callers who
+      // want richer evidence should still prefer `sdd_approve_design`.
+      const state = await pipeline.approveDesign(args.id, [], undefined)
+      return jsonResult({
+        type: 'design' as const,
+        design_id: state.design?.id,
+        status: state.design?.status,
+        error: state.error,
+        hint: state.error
+          ? 'Design was not approved. For evidence-backed approval, use sdd_approve_design with the evidence array.'
+          : undefined,
+      })
     }
   )
 

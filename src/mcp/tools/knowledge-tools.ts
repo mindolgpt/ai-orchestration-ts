@@ -16,7 +16,7 @@ export function registerKnowledgeTools(
     'recall_knowledge',
     {
       description:
-        'Deprecated — use query_wiki (snippets mode). Semantic search returning snippets only.',
+        'DEPRECATED — use query_wiki (snippets mode). Semantic search returning snippets only. This tool is kept only for legacy compatibility and may be hidden by the tool-tier config (AIO_MCP_TOOL_SET).',
       inputSchema: z.object({ query: z.string(), top_k: z.number().optional() }),
     },
     async (args) => {
@@ -42,7 +42,7 @@ export function registerKnowledgeTools(
     'store_knowledge',
     {
       description:
-        'Deprecated — bypasses wiki 3-layer workflow. Prefer ingest_pipeline or file_back.',
+        'DEPRECATED — bypasses the wiki 3-layer (raw / concept / lint) workflow and may produce inconsistent index entries. Prefer ingest_pipeline (file_path + concepts) or file_back (synthesized answers). Hidden via AIO_MCP_TOOL_SET on hardened installs.',
       inputSchema: z.object({
         path: z.string(),
         content: z.string(),

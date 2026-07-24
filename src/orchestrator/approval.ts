@@ -51,6 +51,10 @@ export class ApprovalGate {
   private confirmCodes = new Map<string, string>()
   private filePath: string
   private ttlMs: number
+  /** Serializes persist() calls so concurrent writes never corrupt the JSON file. */
+  private writeChain: Promise<unknown> = Promise.resolve()
+  /** Last-seen file mtime (ms). waitFor only re-reads when it advanced. */
+  private lastSeenMtimeMs = 0
 
   constructor(projectRoot?: string, ttlMs = 30 * 60_000) {
     const root = projectRoot || resolveProjectRoot()
@@ -60,22 +64,33 @@ export class ApprovalGate {
 
   async load(): Promise<void> {
     try {
+      const stat = await fs.stat(this.filePath).catch(() => null)
       const raw = await fs.readFile(this.filePath, 'utf-8')
       const arr = JSON.parse(raw) as ApprovalRequest[]
       this.items.clear()
       for (const a of arr) this.items.set(a.id, a)
+      if (stat?.mtimeMs) this.lastSeenMtimeMs = stat.mtimeMs
     } catch {
       /* fresh */
     }
   }
 
   private async persist(): Promise<void> {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true })
-    await fs.writeFile(
-      this.filePath,
-      JSON.stringify(Array.from(this.items.values()), null, 2),
-      'utf-8'
+    const run = (async () => {
+      await fs.mkdir(path.dirname(this.filePath), { recursive: true })
+      const tmp = `${this.filePath}.tmp-${process.pid}-${Date.now()}`
+      await fs.writeFile(tmp, JSON.stringify(Array.from(this.items.values()), null, 2), 'utf-8')
+      // atomic on most filesystems: rename replaces the destination atomically
+      // and a reader never observes a half-written file.
+      await fs.rename(tmp, this.filePath)
+      const stat = await fs.stat(this.filePath).catch(() => null)
+      if (stat?.mtimeMs) this.lastSeenMtimeMs = stat.mtimeMs
+    })()
+    this.writeChain = run.then(
+      () => undefined,
+      () => undefined
     )
+    return run
   }
 
   private expireOld(): void {
@@ -183,8 +198,14 @@ export class ApprovalGate {
       if (!req) return { error: 'not found' }
       if (req.status !== 'pending') return req
       await new Promise((r) => setTimeout(r, 500))
-      // reload from disk so another process/tool can approve
-      await this.load()
+      // Only reload from disk when the file actually moved on (typically because
+      // another process/tool resolved the approval). This avoids ~10 disk reads
+      // per second per waiting tool and the partial-JSON race window that came
+      // from blindly reloading on every iteration.
+      const stat = await fs.stat(this.filePath).catch(() => null)
+      if (stat && stat.mtimeMs > this.lastSeenMtimeMs) {
+        await this.load()
+      }
     }
     return { error: 'timeout waiting for approval' }
   }

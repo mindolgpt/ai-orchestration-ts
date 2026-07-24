@@ -98,7 +98,8 @@ export function registerRepoTools(server: McpServer): void {
     server,
     'cross_repo_query',
     {
-      description: '등록된 모든 레포에서 심볼/의존성 검색.',
+      description:
+        '등록된 모든 레포에서 심볼/의존성 검색. mode: symbol (기본, 심볼 일치), dependency (심볼과 연결된 간선), impact (심볼을 호출하는 노드).',
       inputSchema: z.object({
         query: z.string(),
         repos: z.array(z.string()).optional(),
@@ -110,6 +111,7 @@ export function registerRepoTools(server: McpServer): void {
       const targetRepos = args.repos?.length
         ? config.repositories.filter((r) => args.repos!.includes(r.name))
         : config.repositories
+      const mode = args.mode || 'symbol'
 
       const results: Array<{ repo: string; file: string; symbol: string; kind: string }> = []
 
@@ -119,17 +121,43 @@ export function registerRepoTools(server: McpServer): void {
           const analysis = await analyzeProject([repo.path], {
             include: [`**/*${args.query}*`],
           })
-          const matched = Array.from(analysis.graph.nodes.values()).filter((n) =>
-            n.name.toLowerCase().includes(args.query.toLowerCase())
-          )
 
-          for (const node of matched) {
-            results.push({
-              repo: repo.name,
-              file: node.filePath,
-              symbol: node.name,
-              kind: node.kind,
-            })
+          if (mode === 'symbol') {
+            const matched = Array.from(analysis.graph.nodes.values()).filter((n) =>
+              n.name.toLowerCase().includes(args.query.toLowerCase())
+            )
+            for (const node of matched) {
+              results.push({
+                repo: repo.name,
+                file: node.filePath,
+                symbol: node.name,
+                kind: node.kind,
+              })
+            }
+          } else {
+            // dependency: edges touching matches. impact: callers of matches.
+            const matchedIds = new Set(
+              Array.from(analysis.graph.nodes.values())
+                .filter((n) => n.name.toLowerCase().includes(args.query.toLowerCase()))
+                .map((n) => n.id)
+            )
+            for (const edge of analysis.graph.edges) {
+              if (mode === 'dependency' && matchedIds.has(edge.source)) {
+                results.push({
+                  repo: repo.name,
+                  file: edge.source,
+                  symbol: `${edge.source} -> ${edge.target}`,
+                  kind: 'edge',
+                })
+              } else if (mode === 'impact' && matchedIds.has(edge.target)) {
+                results.push({
+                  repo: repo.name,
+                  file: edge.source,
+                  symbol: `${edge.source} -> ${edge.target}`,
+                  kind: 'caller',
+                })
+              }
+            }
           }
         } catch {
           /* skip unanalyzable repos */
@@ -138,7 +166,7 @@ export function registerRepoTools(server: McpServer): void {
 
       return jsonResult({
         query: args.query,
-        mode: args.mode || 'symbol',
+        mode,
         results: results.slice(0, 100),
         total: results.length,
         repos_searched: targetRepos.map((r) => r.name),

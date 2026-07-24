@@ -166,7 +166,10 @@ describe('registerDagTools', () => {
 
   test('execute_dag uses cached results when available', async () => {
     const { server, getCallback } = createMockServer()
-    dagResults.set('T1', { cached: true })
+    // Cached dag results are namespaced by plan id (`planId::nodeId`) to prevent
+    // cross-plan collisions on identical node ids. The cache for this plan is
+    // pre-seeded with the namespaced key.
+    dagResults.set('plan_3::T1', { cached: true })
 
     registerDagTools(server, new DeepInterviewPlanner(), sessions, inbox, dagResults, 5)
 

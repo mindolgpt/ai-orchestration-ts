@@ -47,17 +47,63 @@ function proposalPath(id: string, projectRoot?: string): string {
   return path.join(proposalsDir(projectRoot), `${assertSafeProposalId(id)}.json`)
 }
 
+/**
+ * Longest-common-subsequence based diff. Produces minimal add/remove line
+ * pairs instead of comparing index-by-index, so an inserted line near the
+ * top no longer marks the rest of the document as changed.
+ */
 function simpleDiff(before: string | null, after: string): string[] {
   const a = (before || '').split('\n')
   const b = after.split('\n')
+
+  // LCS DP table (compact to keep O(n*m) memory bounded for typical wiki
+  // pages; the 200-line cap below still protects against pathological sizes).
+  const n = a.length
+  const m = b.length
+  if (n * m > 200_000) {
+    // Fall back to the old index comparsion for huge inputs — correctness is
+    // preserved (the cap on output lines still applies); just noisy.
+    const lines: string[] = []
+    for (let i = 0; i < Math.max(n, m); i++) {
+      const la = a[i]
+      const lb = b[i]
+      if (la === lb) continue
+      if (la !== undefined) lines.push(`- ${la}`)
+      if (lb !== undefined) lines.push(`+ ${lb}`)
+    }
+    return lines.slice(0, 200)
+  }
+
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      if (a[i] === b[j]) dp[i][j] = dp[i + 1][j + 1] + 1
+      else dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1])
+    }
+  }
+
   const lines: string[] = []
-  const max = Math.max(a.length, b.length)
-  for (let i = 0; i < max; i++) {
-    const la = a[i]
-    const lb = b[i]
-    if (la === lb) continue
-    if (la !== undefined) lines.push(`- ${la}`)
-    if (lb !== undefined) lines.push(`+ ${lb}`)
+  let i = 0
+  let j = 0
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      i++
+      j++
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      lines.push(`- ${a[i]}`)
+      i++
+    } else {
+      lines.push(`+ ${b[j]}`)
+      j++
+    }
+  }
+  while (i < n) {
+    lines.push(`- ${a[i]}`)
+    i++
+  }
+  while (j < m) {
+    lines.push(`+ ${b[j]}`)
+    j++
   }
   return lines.slice(0, 200)
 }

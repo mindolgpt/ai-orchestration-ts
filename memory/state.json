@@ -1,0 +1,44 @@
+[
+  {
+    "id": "msg_1784864999356_1",
+    "sessionId": "sess_bfbcc947",
+    "sender": "session:sess_bfbcc947",
+    "status": "failed",
+    "payload": {
+      "summary": "spawn opencode ENOENT",
+      "stdout": "",
+      "stderr": "\nspawn opencode ENOENT",
+      "returncode": null
+    },
+    "timestamp": 1784864999356,
+    "read": true
+  },
+  {
+    "id": "msg_1784865000276_2",
+    "sessionId": "sess_9470570b",
+    "sender": "session:sess_9470570b",
+    "status": "failed",
+    "payload": {
+      "summary": "spawn opencode ENOENT",
+      "stdout": "",
+      "stderr": "\nspawn opencode ENOENT",
+      "returncode": null
+    },
+    "timestamp": 1784865000276,
+    "read": true
+  },
+  {
+    "id": "msg_1784865001724_3",
+    "sessionId": "sess_82dd2536",
+    "sender": "session:sess_82dd2536",
+    "status": "failed",
+    "payload": {
+      "summary": "spawn opencode ENOENT",
+      "stdout": "",
+      "stderr": "\nspawn opencode ENOENT",
+      "returncode": null
+    },
+    "timestamp": 1784865001724,
+    "read": true
+  }
+]

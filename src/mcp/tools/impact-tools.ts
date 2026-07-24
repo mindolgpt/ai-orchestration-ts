@@ -6,8 +6,21 @@ import { jsonResult } from '@/mcp/json-result'
 import { registerMcpTool } from '@/mcp/register-tool'
 
 export function registerImpactTools(server: McpServer): void {
-  const root = resolveProjectRoot()
-  const analyzer = new ImpactAnalyzer({ projectRoot: root, roots: [root] })
+  // Lazy + project-root-aware analyzer. A single in-process MCP server is
+  // typically bound to one project root, but resolveProjectRoot() may yield a
+  // different path (e.g. env switch) between requests — we re-create the
+  // analyzer only when that actually changes, so dossier state is preserved
+  // within a project while still being adaptable to alternate roots.
+  let cachedRoot: string | null = null
+  let analyzer: ImpactAnalyzer | null = null
+  function getAnalyzer(): ImpactAnalyzer {
+    const root = resolveProjectRoot()
+    if (!analyzer || cachedRoot !== root) {
+      analyzer = new ImpactAnalyzer({ projectRoot: root, roots: [root] })
+      cachedRoot = root
+    }
+    return analyzer
+  }
 
   registerMcpTool(
     server,
@@ -23,7 +36,7 @@ export function registerImpactTools(server: McpServer): void {
       }),
     },
     async (args) => {
-      const dossier = await analyzer.analyze({
+      const dossier = await getAnalyzer().analyze({
         changeDescription: args.change_description,
         affectedFiles: args.affected_files,
         specIds: args.spec_ids,
@@ -67,8 +80,8 @@ export function registerImpactTools(server: McpServer): void {
       }),
     },
     async (args) => {
-      const dossier = analyzer.getDossier(args.dossier_id)
-      if (!dossier) return jsonResult({ error: `Dossier ${args.dossier_id} not found` })
+      const dossier = getAnalyzer().getDossier(args.dossier_id)
+      if (!dossier) return jsonResult({ ok: false, error: `Dossier ${args.dossier_id} not found` })
       return jsonResult(dossier)
     }
   )
@@ -81,7 +94,7 @@ export function registerImpactTools(server: McpServer): void {
       inputSchema: z.object({}),
     },
     async () => {
-      const list = analyzer.listDossiers()
+      const list = getAnalyzer().listDossiers()
       return jsonResult({ dossiers: list, total: list.length })
     }
   )

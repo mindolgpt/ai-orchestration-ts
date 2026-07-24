@@ -125,3 +125,97 @@ describe('SddPipeline approve — autoApprove (AIO_SDD_AUTO_APPROVE)', () => {
     expect(state.spec?.status).toBe('approved')
   })
 })
+
+describe('SddPipeline approveDesign — auto-evidence path (AIO_SDD_AUTO_APPROVE)', () => {
+  let tmp: string
+
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-sdd-design-'))
+    delete process.env.AIO_ALLOW_MCP_APPROVAL_RESOLVE
+  })
+
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true })
+  })
+
+  test('approveDesign with autoApprove synthesizes evidence and approves (no human wait)', async () => {
+    // autoApprove on -> both spec approval and design approval self-complete.
+    const approval = new ApprovalGate(tmp)
+    await approval.load()
+    const pipeline = new SddPipeline(tmp, approval, { autoApprove: true })
+
+    // Seed + approve spec first (autoApprove gate).
+    const { specId } = await seedSpec(tmp)
+    const specState = await pipeline.approveSpec(specId)
+    expect(specState.spec?.status).toBe('approved')
+
+    // Seed a design linked to the approved spec.
+    const designDir = path.join(tmp, '.aio', 'sdd', `design-test1`)
+    await fs.mkdir(designDir, { recursive: true })
+    const designPath = path.join(designDir, 'system_design.md')
+    await fs.writeFile(designPath, '# System Design\n\nBody\n', 'utf-8')
+    const designId = 'design-test1'
+    const design = {
+      id: designId,
+      specId,
+      status: 'draft' as const,
+      designRevision: '',
+      productFingerprint: '',
+      evidenceFingerprint: '',
+      systemDesignPath: designPath,
+      createdAt: Date.now(),
+    }
+    const designsDir = path.join(tmp, '.aio', 'sdd', 'meta', 'designs')
+    await fs.mkdir(designsDir, { recursive: true })
+    await fs.writeFile(path.join(designsDir, `${designId}.json`), JSON.stringify(design, null, 2))
+
+    // approveDesign with empty evidence -> autoApprove synthesizes evidence.
+    const state = await pipeline.approveDesign(designId, [], undefined, 'human')
+    expect(state.error).toBeUndefined()
+    expect(state.design?.status).toBe('approved')
+    expect(state.design?.approvedRevision).toBeTruthy()
+  })
+
+  test('approveDesign without autoApprove + no evidence returns NEEDS_WORK (self review)', async () => {
+    // No autoApprove, no evidence -> selfReview returns NEEDS_WORK, gate blocks.
+    const approval = new ApprovalGate(tmp)
+    await approval.load()
+    const pipeline = new SddPipeline(tmp, approval, { autoApprove: false })
+
+    const { specId } = await seedSpec(tmp)
+    // Approve spec via explicit confirm_code path so we can get to design.
+    delete process.env.AIO_ALLOW_MCP_APPROVAL_RESOLVE
+    // Can't easily approve without code -> skip: this test focuses on the
+    // design gate behavior, which only runs after spec approval. So we
+    // directly verify the self-review error using an approved spec by
+    // toggling autoApprove on just for the spec step.
+    const pipeline2 = new SddPipeline(tmp, approval, { autoApprove: true })
+    await pipeline2.approveSpec(specId)
+
+    const designDir = path.join(tmp, '.aio', 'sdd', `design-test2`)
+    await fs.mkdir(designDir, { recursive: true })
+    const designPath = path.join(designDir, 'system_design.md')
+    await fs.writeFile(designPath, '# System Design\n', 'utf-8')
+    const designId = 'design-test2'
+    const designObj = {
+      id: designId,
+      specId,
+      status: 'draft' as const,
+      designRevision: '',
+      productFingerprint: '',
+      evidenceFingerprint: '',
+      systemDesignPath: designPath,
+      createdAt: Date.now(),
+    }
+    const designsDir = path.join(tmp, '.aio', 'sdd', 'meta', 'designs')
+    await fs.mkdir(designsDir, { recursive: true })
+    await fs.writeFile(
+      path.join(designsDir, `${designId}.json`),
+      JSON.stringify(designObj, null, 2)
+    )
+
+    const state = await pipeline.approveDesign(designId, [], undefined, 'human')
+    expect(state.error).toContain('Self review')
+    expect(state.design?.status).toBe('draft')
+  })
+})

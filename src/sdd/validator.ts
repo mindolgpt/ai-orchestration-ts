@@ -30,10 +30,11 @@ export function validateDesignReadiness(
     score -= 30
   }
 
-  if (design.status !== 'approved') {
-    criticalFindings.push('Design is not approved')
-    score -= 30
-  }
+  // Note: do NOT penalize `design.status !== 'approved'` here. This function
+  // gates the approveDesign() *action* — checking the post-approval status
+  // would create a chicken-and-egg (impossible to approve). The action itself
+  // flips design.status to 'approved' on success, so this gate must rely on
+  // upstream signals: spec approval + evidence coverage only.
 
   const evidenceByCoverage = groupBy(evidence, (e) => e.proof)
   const confirmedCount = (evidenceByCoverage.get('confirmed-path') || []).length

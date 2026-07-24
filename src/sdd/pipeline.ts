@@ -33,6 +33,16 @@ export interface SddPipelineDeps {
   /** Optional vault + search to enrich designs with semantic wiki citations. */
   vault?: ObsidianVault
   search?: SemanticSearch
+  /**
+   * When true, approveSpec/approveDesign self-complete the approval gate
+   * immediately (trustedLocal resolve) instead of blocking on waitFor().
+   * Enabled by AIO_SDD_AUTO_APPROVE=1 env var — preserves the human gate by
+   * default while letting fully-automated MCP flows (e.g. Cursor agents)
+   * progress past spec→design→tasks without access to server stderr
+   * confirm_code. The pipeline still flips spec.status to 'approved', so the
+   * downstream design gate (`spec.status === 'approved'`) is honored.
+   */
+  autoApprove?: boolean
 }
 
 export class SddPipeline {
@@ -42,6 +52,7 @@ export class SddPipeline {
   private baseDir: string
   private vault?: ObsidianVault
   private search?: SemanticSearch
+  private autoApprove: boolean
 
   constructor(baseDir: string, approval: ApprovalGate, deps?: SddPipelineDeps) {
     this.baseDir = baseDir
@@ -50,6 +61,7 @@ export class SddPipeline {
     this.approval = approval
     this.vault = deps?.vault
     this.search = deps?.search
+    this.autoApprove = deps?.autoApprove ?? process.env.AIO_SDD_AUTO_APPROVE === '1'
   }
 
   /** Query the wiki for pages relevant to the spec (best-effort, non-fatal). */
@@ -109,6 +121,27 @@ export class SddPipeline {
    *    another process resolves the request via `approvals.json` (or until the
    *    300s timeout). This preserves the human-in-the-loop gate for CLI flows.
    */
+  /**
+   * Decide how the just-created approval request is resolved:
+   *  1) confirmCode provided -> call resolve() with that code (proves the
+   *     caller saw the server stderr code; checked against confirmHash).
+   *  2) autoApprove (AIO_SDD_AUTO_APPROVE=1) -> call resolve() with
+   *     trustedLocal=true, no code needed.
+   *  3) neither -> waitFor() (human-in-the-loop, ~300s timeout if nobody
+   *     resolves via approvals.json).
+   */
+  private async resolveOrWait(approvalId: string, resolver: string, confirmCode?: string) {
+    if (confirmCode !== undefined) {
+      return this.approval.resolve(approvalId, true, resolver, { confirmCode })
+    }
+    if (this.autoApprove) {
+      return this.approval.resolve(approvalId, true, resolver, {
+        trustedLocal: true,
+      })
+    }
+    return this.approval.waitFor(approvalId)
+  }
+
   async approveSpec(
     specId: string,
     resolver = 'human',
@@ -122,12 +155,11 @@ export class SddPipeline {
       `Approve spec ${spec.title}`,
       'medium'
     )
-    const resolved =
-      opts?.confirmCode !== undefined
-        ? await this.approval.resolve(approvalReq.id, true, resolver, {
-            confirmCode: opts.confirmCode,
-          })
-        : await this.approval.waitFor(approvalReq.id)
+    // Self-complete path:
+    //  1) opts.confirmCode (MCP caller passed code from stderr) -> resolve with code
+    //  2) autoApprove (AIO_SDD_AUTO_APPROVE=1) -> resolve trustedLocal
+    //  3) otherwise -> waitFor (human-in-the-loop, may time out after 300s)
+    const resolved = await this.resolveOrWait(approvalReq.id, resolver, opts?.confirmCode)
     if ('error' in resolved) return { currentStage: 'spec', spec, error: resolved.error }
 
     if (resolved.status === 'approved') {
@@ -211,14 +243,8 @@ export class SddPipeline {
       `Approve design for spec ${spec?.title}`,
       'high'
     )
-    // Self-complete path: when a confirm_code is supplied (MCP caller), resolve
-    // immediately instead of blocking on waitFor(). Mirrors approveSpec.
-    const resolved =
-      opts?.confirmCode !== undefined
-        ? await this.approval.resolve(approvalReq.id, true, resolver, {
-            confirmCode: opts.confirmCode,
-          })
-        : await this.approval.waitFor(approvalReq.id)
+    // Self-complete path: same precedence as approveSpec.
+    const resolved = await this.resolveOrWait(approvalReq.id, resolver, opts?.confirmCode)
     if ('error' in resolved) return { currentStage: 'design', spec, design, error: resolved.error }
 
     if (resolved.status === 'approved') {

@@ -110,26 +110,34 @@ export function registerSddTools(server: McpServer, approval: ApprovalGate): voi
     },
     async (args) => {
       if (args.type === 'spec') {
-        const state = await pipeline.approveSpec(args.id)
+        const state = await pipeline.approveSpec(args.id, 'human', {
+          confirmCode: args.confirm_code,
+        })
         return jsonResult({
           type: 'spec',
           spec_id: state.spec?.id,
           status: state.spec?.status,
           error: state.error,
+          hint:
+            state.error && state.error.includes('confirm_code')
+              ? 'Pass confirm_code (from MCP server stderr [aio:approval]) or set AIO_ALLOW_MCP_APPROVAL_RESOLVE=1.'
+              : undefined,
         })
       }
       // type === 'design': route to approveDesign so callers can approve a
       // design with this tool too. Without evidence the self-review/readiness
       // gates will refuse the approval with a descriptive error — callers who
       // want richer evidence should still prefer `sdd_approve_design`.
-      const state = await pipeline.approveDesign(args.id, [], undefined)
+      const state = await pipeline.approveDesign(args.id, [], undefined, 'human', {
+        confirmCode: args.confirm_code,
+      })
       return jsonResult({
         type: 'design' as const,
         design_id: state.design?.id,
         status: state.design?.status,
         error: state.error,
         hint: state.error
-          ? 'Design was not approved. For evidence-backed approval, use sdd_approve_design with the evidence array.'
+          ? 'Design was not approved. For evidence-backed approval, use sdd_approve_design with the evidence array. If the error mentions confirm_code, pass it from MCP server stderr or set AIO_ALLOW_MCP_APPROVAL_RESOLVE=1.'
           : undefined,
       })
     }
@@ -171,7 +179,9 @@ export function registerSddTools(server: McpServer, approval: ApprovalGate): voi
             : ([0, 0] as [number, number]),
         finding: e.finding,
       }))
-      const state = await pipeline.approveDesign(args.design_id, evidence, undefined)
+      const state = await pipeline.approveDesign(args.design_id, evidence, undefined, 'human', {
+        confirmCode: args.confirm_code,
+      })
       return jsonResult({
         design_id: state.design?.id,
         status: state.design?.status,

@@ -97,7 +97,23 @@ export class SddPipeline {
     return { currentStage: 'spec', spec, error: undefined }
   }
 
-  async approveSpec(specId: string, resolver = 'human'): Promise<SddPipelineState> {
+  /**
+   * Approve a spec.
+   *
+   * Two resolution paths:
+   *  - `opts.confirmCode` provided (e.g. MCP caller passing the code from
+   *    server stderr): the approval is resolved immediately through
+   *    `approval.resolve(..., { confirmCode })` — no human-wait loop, no
+   *    300s timeout.
+   *  - No `confirmCode`: falls back to `approval.waitFor`, which blocks until
+   *    another process resolves the request via `approvals.json` (or until the
+   *    300s timeout). This preserves the human-in-the-loop gate for CLI flows.
+   */
+  async approveSpec(
+    specId: string,
+    resolver = 'human',
+    opts?: { confirmCode?: string }
+  ): Promise<SddPipelineState> {
     const spec = await this.specStore.get(specId)
     if (!spec) return { currentStage: 'spec', error: `Spec ${specId} not found` }
 
@@ -106,7 +122,12 @@ export class SddPipeline {
       `Approve spec ${spec.title}`,
       'medium'
     )
-    const resolved = await this.approval.waitFor(approvalReq.id)
+    const resolved =
+      opts?.confirmCode !== undefined
+        ? await this.approval.resolve(approvalReq.id, true, resolver, {
+            confirmCode: opts.confirmCode,
+          })
+        : await this.approval.waitFor(approvalReq.id)
     if ('error' in resolved) return { currentStage: 'spec', spec, error: resolved.error }
 
     if (resolved.status === 'approved') {
@@ -157,7 +178,8 @@ export class SddPipeline {
     designId: string,
     evidence: DesignEvidence[],
     kickoff?: TechnicalKickoffPacket,
-    resolver = 'human'
+    resolver = 'human',
+    opts?: { confirmCode?: string }
   ): Promise<SddPipelineState> {
     const design = await this.designStore.get(designId)
     if (!design) return { currentStage: 'design', error: `Design ${designId} not found` }
@@ -189,7 +211,14 @@ export class SddPipeline {
       `Approve design for spec ${spec?.title}`,
       'high'
     )
-    const resolved = await this.approval.waitFor(approvalReq.id)
+    // Self-complete path: when a confirm_code is supplied (MCP caller), resolve
+    // immediately instead of blocking on waitFor(). Mirrors approveSpec.
+    const resolved =
+      opts?.confirmCode !== undefined
+        ? await this.approval.resolve(approvalReq.id, true, resolver, {
+            confirmCode: opts.confirmCode,
+          })
+        : await this.approval.waitFor(approvalReq.id)
     if ('error' in resolved) return { currentStage: 'design', spec, design, error: resolved.error }
 
     if (resolved.status === 'approved') {

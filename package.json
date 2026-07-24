@@ -1,6 +1,6 @@
 {
   "name": "@mindol1004/aio-mcp",
-  "version": "2.15.16",
+  "version": "2.15.17",
   "description": "AI Orchestration System - TypeScript rewrite",
   "type": "module",
   "main": "dist/cli.js",

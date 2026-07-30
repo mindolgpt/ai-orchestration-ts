@@ -13,7 +13,7 @@ import { registerMcpTool } from '@/mcp/register-tool'
 export interface ChildSession {
   id: string
   pid?: number
-  status: 'running' | 'completed' | 'failed' | 'timeout' | 'killed'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout' | 'killed'
   task: string
   createdAt: number
   stdout: string
@@ -36,10 +36,18 @@ export interface SpawnSessionOptions {
   cwd?: string
   projectRoot?: string
   timeout_ms?: number
+  /**
+   * 'spawn' (default) — launch a child OS process via CLI binary.
+   * 'notify' — create a pending session; the host agent picks up the task
+   *   and calls report_result() when done. No CLI binary needed.
+   */
+  mode?: 'spawn' | 'notify'
 }
 
 function runningCount(sessions: Map<string, ChildSession>): number {
-  return Array.from(sessions.values()).filter((s) => s.status === 'running').length
+  return Array.from(sessions.values()).filter(
+    (s) => s.status === 'running' || s.status === 'pending'
+  ).length
 }
 
 function buildChildPrompt(
@@ -93,6 +101,46 @@ export async function spawnSession(
   const sessionSecret = randomBytes(16).toString('hex')
   const prompt = buildChildPrompt(sessionId, task, context, sessionSecret)
   const projectRoot = opts?.projectRoot || resolveProjectRoot()
+  const mode = opts?.mode || 'spawn'
+
+  // ── Notify mode: no CLI spawn — host agent picks up the task ──
+  if (mode === 'notify') {
+    const session: ChildSession = {
+      id: sessionId,
+      status: 'pending',
+      task: task.slice(0, 120),
+      createdAt: Date.now(),
+      stdout: '',
+      stderr: '',
+      pendingMessages: [],
+      runtime: 'notify',
+      cwd: projectRoot,
+      sessionSecret,
+    }
+    sessions.set(sessionId, session)
+
+    await getEventLog().emit('session.spawned', {
+      session_id: sessionId,
+      runtime: 'notify',
+      command: 'host-agent',
+      worktree: false,
+    })
+
+    return {
+      session_id: sessionId,
+      status: 'pending',
+      task: session.task,
+      mode: 'notify',
+      prompt,
+      isolated: false,
+      runtime: 'notify',
+      worktree: null,
+      worktree_branch: null,
+      timeout_ms: opts?.timeout_ms ?? 300_000,
+    }
+  }
+
+  // ── Spawn mode: CLI binary (original behavior) ──
   const spec = resolveSessionSpawn(prompt, {
     runtime: opts?.runtime,
     command: opts?.command,
@@ -390,13 +438,14 @@ export function registerSessionTools(
     'spawn_session',
     {
       description:
-        'Spawn an isolated child AI session. runtime: opencode|claude|cursor|codex|custom. Optional git worktree isolation.',
+        'Spawn an isolated child AI session. Modes: spawn (default, needs CLI binary) or notify (returns instantly; host calls report_result). Built-in CLIs: opencode|claude|cursor|codex. Register custom CLIs via AIO_RUNTIME_<NAME>_COMMAND env var.',
       inputSchema: z.object({
         task: z.string(),
         context: z.string().optional(),
         timeout_ms: z.number().optional(),
-        runtime: z.enum(['opencode', 'claude', 'cursor', 'codex', 'custom']).optional(),
+        runtime: z.string().optional(),
         worktree: z.boolean().optional(),
+        mode: z.enum(['spawn', 'notify']).optional(),
       }),
     },
     async (args) => ({
@@ -408,6 +457,7 @@ export function registerSessionTools(
               runtime: args.runtime,
               worktree: args.worktree,
               timeout_ms: args.timeout_ms,
+              mode: args.mode,
             })
           ),
         },

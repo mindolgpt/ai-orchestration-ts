@@ -34,8 +34,10 @@ export interface ImplementLoopOptions {
   ralph_max_retries?: number
   /** When true, only plan + verify without spawning sessions */
   dry_run?: boolean
-  /** Child-agent runtime used when spawning implementation sessions. */
-  runtime?: 'opencode' | 'claude' | 'cursor' | 'codex' | 'custom'
+  /** Child-agent runtime used when spawning implementation sessions. Any string accepted; built-in: opencode, claude, cursor, codex. Register custom runtimes via AIO_RUNTIME_<NAME>_COMMAND env. */
+  runtime?: string
+  /** Session spawn mode: 'spawn' (CLI binary, default) or 'notify' (host agent calls report_result). */
+  mode?: 'spawn' | 'notify'
   /** Run each session inside an isolated git worktree. */
   worktree?: boolean
   /** Per-session timeout in ms (default 300000). */
@@ -154,7 +156,7 @@ export async function runImplementLoop(
           sessionDeps.maxSessions,
           prompt,
           undefined,
-          { worktree: opts.worktree, runtime: opts.runtime, projectRoot: root }
+          { worktree: opts.worktree, runtime: opts.runtime, projectRoot: root, mode: opts.mode }
         )
         const sessionId = typeof spawned.session_id === 'string' ? spawned.session_id : ''
         if (spawned.error || !sessionId) {

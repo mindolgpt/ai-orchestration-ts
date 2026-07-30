@@ -459,7 +459,7 @@ export async function bootstrapProduct(
     status: 'complete',
     next_steps: [
       'domain_context({ task, format: "path" })',
-      'run_implement_loop or plan_task → execute_dag',
+      'implement_loop_start → implement_loop_report or plan_task → execute_dag',
       'file_back + lint_wiki',
     ],
   })

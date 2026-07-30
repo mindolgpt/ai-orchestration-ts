@@ -58,7 +58,7 @@ description: Implement loop with DoD verify
 # Implement skill
 
 1. \`domain_context\` (format path)
-2. \`plan_task\` → \`execute_dag\` or \`run_implement_loop\`
+2. \`plan_task\` → \`execute_dag\` or \`implement_loop_start\` → \`implement_loop_report\` (no CLI binary needed)
 3. Definition of Done: build, lint, typecheck, test, acceptance; cite wiki/SDD; update \`packages/contracts\` when APIs change.
 4. \`file_back\` durable decisions; \`lint_wiki\` after wiki edits.
 `

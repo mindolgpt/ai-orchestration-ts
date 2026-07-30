@@ -129,7 +129,7 @@ export function registerSddTools(server: McpServer): void {
           all_pass: res.all_pass,
           pending: res.items.filter((i) => i.status !== 'pass').map((i) => i.id),
           next: res.all_pass
-            ? 'All AC pass — run_implement_loop / execute_dag acceptance step will pass'
+            ? 'All AC pass — implement_loop_start / execute_dag acceptance step will pass'
             : 'Satisfy remaining AC then report_acceptance again',
         })
       } catch (err) {

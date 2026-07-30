@@ -53,7 +53,7 @@ ${rulesBlock(extras)}
 | New product | bootstrap_product (wiki→SDD→scan/interview→harness→scaffold→DoD) |
 | Interview | languages → tech stack → architecture methodology → coding rules (KO/EN) |
 | New project | init → bootstrap_harness → seed_stacks → run_doctor |
-| Implement | domain_context → run_implement_loop / plan_task → execute_dag → file_back → lint_wiki |
+| Implement | domain_context → implement_loop_start → implement_loop_report / plan_task → execute_dag → file_back → lint_wiki |
 | Design | brainstorm_design (same topic + merged answers) |
 | Ingest | ingest_pipeline (lint_mode:none) → lint_wiki |
 

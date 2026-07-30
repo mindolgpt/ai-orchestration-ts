@@ -42,8 +42,8 @@ describe('keyword routePrompt — harness', () => {
   })
 
   test('구현 루프 / implement loop keywords', () => {
-    expect(routePrompt('구현 루프 돌려줘').tool).toBe('run_implement_loop')
-    expect(routePrompt('run the implement loop').tool).toBe('run_implement_loop')
+    expect(routePrompt('구현 루프 돌려줘').tool).toBe('implement_loop_start')
+    expect(routePrompt('run the implement loop').tool).toBe('implement_loop_start')
   })
 
   test('bare harness does not false-match', () => {

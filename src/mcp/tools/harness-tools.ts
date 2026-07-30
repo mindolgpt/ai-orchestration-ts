@@ -651,29 +651,67 @@ export function registerHarnessTools(server: McpServer, ctx: HarnessToolsContext
 
   registerMcpTool(
     server,
-    'run_implement_loop',
+    'implement_loop_start',
     {
       description:
-        'DoD implement loop: spawns child agent sessions per SDD task and Ralph-retries with informed feedback until build/lint/typecheck/test/acceptance pass. Keywords: 구현 루프 / implement loop / run until done / 완벽할 때까지.',
+        'Start a state-machine-based implement loop. Loads SDD tasks, persists state to .aio/implement-loop/, and returns the first task for the host agent to implement. No CLI binary needed — the host agent writes code, then calls implement_loop_report. Keywords: 구현 루프 시작 / implement loop start / start implement loop',
       inputSchema: z.object({
         spec_id: z.string().optional(),
         ralph_max_retries: z.number().optional(),
-        dry_run: z.boolean().optional(),
-        runtime: z.enum(['opencode', 'claude', 'cursor', 'codex', 'custom']).optional(),
-        worktree: z.boolean().optional(),
-        session_timeout_ms: z.number().optional(),
       }),
     },
     async (args) => {
-      const { runImplementLoop } = await import('@/harness/implement-loop')
-      const result = await runImplementLoop({
+      const { startImplementLoop } = await import('@/harness/implement-loop')
+      const result = await startImplementLoop({
         projectRoot: root,
         spec_id: args.spec_id,
         ralph_max_retries: args.ralph_max_retries,
-        dry_run: args.dry_run,
-        runtime: args.runtime,
-        worktree: args.worktree,
-        session_timeout_ms: args.session_timeout_ms,
+      })
+      return json(result)
+    }
+  )
+
+  registerMcpTool(
+    server,
+    'implement_loop_report',
+    {
+      description:
+        'Report completion of the current task. The MCP server verifies (build/lint/typecheck/test/acceptance). If verify passes, advances to next task. If verify fails, the task may be retried. Returns the next task or the final result. Keywords: 구현 결과 보고 / implement loop report / report task result',
+      inputSchema: z.object({
+        run_id: z.string(),
+        task_id: z.string(),
+        status: z.enum(['completed', 'failed']),
+        summary: z.string().optional(),
+      }),
+    },
+    async (args) => {
+      const { reportImplementLoopResult } = await import('@/harness/implement-loop')
+      const result = await reportImplementLoopResult({
+        projectRoot: root,
+        run_id: args.run_id,
+        task_id: args.task_id,
+        status: args.status,
+        summary: args.summary,
+      })
+      return json(result)
+    }
+  )
+
+  registerMcpTool(
+    server,
+    'implement_loop_status',
+    {
+      description:
+        'Check the current status of an implement loop run. Keywords: 구현 루프 상태 / implement loop status / loop progress',
+      inputSchema: z.object({
+        run_id: z.string(),
+      }),
+    },
+    async (args) => {
+      const { getImplementLoopStatus } = await import('@/harness/implement-loop')
+      const result = await getImplementLoopStatus({
+        projectRoot: root,
+        run_id: args.run_id,
       })
       return json(result)
     }

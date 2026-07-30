@@ -1,6 +1,6 @@
 # AS-IS Codebase
 
-Scanned: 2026-07-30T05:31:14.390Z
+Scanned: 2026-07-30T06:42:43.234Z
 
 ## Detected stack
 
@@ -25,7 +25,7 @@ Scanned: 2026-07-30T05:31:14.390Z
 
 ## Analysis summary
 
-- Files: 156, Nodes: 680, Routes: 10, Models: 2, Concepts: 0
+- Files: 156, Nodes: 678, Routes: 10, Models: 2, Concepts: 0
 
 - Detected analysis languages: typescript
 

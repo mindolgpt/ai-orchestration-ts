@@ -314,13 +314,29 @@ async function dispatchTool(
       })
     }
 
-    case 'run_implement_loop': {
-      const { runImplementLoop } = await import('@/harness/implement-loop')
-      return runImplementLoop({
+    case 'implement_loop_start': {
+      const { startImplementLoop } = await import('@/harness/implement-loop')
+      return startImplementLoop({
         projectRoot,
         spec_id: asStr(p.spec_id) || undefined,
         ralph_max_retries: Number(p.ralph_max_retries) || undefined,
-        dry_run: p.dry_run === true,
+      })
+    }
+    case 'implement_loop_report': {
+      const { reportImplementLoopResult } = await import('@/harness/implement-loop')
+      return reportImplementLoopResult({
+        projectRoot,
+        run_id: asStr(p.run_id) || '',
+        task_id: asStr(p.task_id) || '',
+        status: (p.status as 'completed' | 'failed') || 'completed',
+        summary: asStr(p.summary) || undefined,
+      })
+    }
+    case 'implement_loop_status': {
+      const { getImplementLoopStatus } = await import('@/harness/implement-loop')
+      return getImplementLoopStatus({
+        projectRoot,
+        run_id: asStr(p.run_id) || '',
       })
     }
 

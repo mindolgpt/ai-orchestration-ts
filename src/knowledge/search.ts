@@ -21,6 +21,8 @@ export class SemanticSearch {
   private indexDir: string
   private ready = false
   private docsByPath = new Map<string, KnowledgeDoc>()
+  /** Cache of document-path → embedding vector to avoid full re-embed on updates. */
+  private embeddingCache = new Map<string, number[]>()
 
   constructor(
     private embedder: { embed: (texts: string[]) => Promise<number[][]>; dimension: number },
@@ -79,11 +81,34 @@ export class SemanticSearch {
     }
 
     if (prev) {
-      // Path update: re-embed all docs (FAISS IndexFlatIP has no point delete)
+      // Path update: only re-embed the changed document; reuse cached embeddings
+      // for unchanged docs to avoid the full N-doc re-embed per update.
       const next = [...this.docsByPath.values()].map((d) =>
         normalizeDocPath(d.path) === norm ? doc : d
       )
-      const embeddings = await this.embedder.embed(next.map((d) => d.content))
+
+      const embeddings = new Array(next.length) as number[][]
+      const toEmbed: Array<{ idx: number; doc: KnowledgeDoc }> = []
+      for (let i = 0; i < next.length; i++) {
+        const key = normalizeDocPath(next[i].path)
+        const cached = this.embeddingCache.get(key)
+        if (cached !== undefined) {
+          embeddings[i] = cached
+        } else {
+          toEmbed.push({ idx: i, doc: next[i] })
+        }
+      }
+      if (toEmbed.length > 0) {
+        const newEmbs = await this.embedder.embed(toEmbed.map((e) => e.doc.content))
+        for (let j = 0; j < toEmbed.length; j++) {
+          embeddings[toEmbed[j].idx] = newEmbs[j]
+        }
+      }
+      // Update cache after successful embedding
+      for (let i = 0; i < next.length; i++) {
+        this.embeddingCache.set(normalizeDocPath(next[i].path), embeddings[i])
+      }
+
       await this.store.replaceAll(
         next.map((d, i) => ({
           id: normalizeDocPath(d.path),
@@ -98,6 +123,7 @@ export class SemanticSearch {
     }
 
     const emb = await this.embedder.embed([content])
+    this.embeddingCache.set(norm, emb[0])
     await this.store.upsert([{ id: norm, vector: emb[0], document: doc }])
     this.docsByPath.set(norm, doc)
     this._cachedCount = this.docsByPath.size

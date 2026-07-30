@@ -57,7 +57,9 @@ export class FileDesignStore implements DesignStore {
 
   async save(design: SddDesign): Promise<void> {
     await fs.mkdir(this.dir, { recursive: true })
-    await fs.writeFile(this.filePath(design.id), JSON.stringify(design, null, 2), 'utf-8')
+    const tmp = `${this.filePath(design.id)}.tmp-${process.pid}-${Date.now()}`
+    await fs.writeFile(tmp, JSON.stringify(design, null, 2), 'utf-8')
+    await fs.rename(tmp, this.filePath(design.id))
   }
 }
 

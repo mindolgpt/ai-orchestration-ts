@@ -1,21 +1,22 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { SddPipeline } from '@/sdd/pipeline'
-import { ApprovalGate } from '@/orchestrator/approval'
 import { resolveProjectRoot } from '@/knowledge/paths'
 import { jsonResult } from '@/mcp/json-result'
 import { registerMcpTool } from '@/mcp/register-tool'
 import { markAcceptanceItems } from '@/sdd/from-wiki'
 
-export function registerSddTools(server: McpServer, approval: ApprovalGate): void {
+export function registerSddTools(server: McpServer): void {
   const root = resolveProjectRoot()
-  const pipeline = new SddPipeline(root, approval)
+  const pipeline = new SddPipeline(root)
 
   registerMcpTool(
     server,
     'sdd_spec',
     {
-      description: 'SDD Spec 생성: PRD + User Stories. 승인 게이트 포함.',
+      description:
+        'SDD Spec 생성: PRD + User Stories. Spec이 생성됨과 동시에 자동 승인되므로 ' +
+        '별도 승인 도구 호출 없이 바로 sdd_design으로 이어집니다.',
       inputSchema: z.object({
         project: z.string(),
         title: z.string(),
@@ -48,7 +49,7 @@ export function registerSddTools(server: McpServer, approval: ApprovalGate): voi
         status: state.spec?.status,
         prd_path: state.spec?.prdPath,
         stories_path: state.spec?.storiesPath,
-        next: 'Use sdd_approve to approve spec, then sdd_design',
+        next: 'Design auto-approved. Call sdd_design to proceed.',
       })
     }
   )
@@ -57,7 +58,7 @@ export function registerSddTools(server: McpServer, approval: ApprovalGate): voi
     server,
     'sdd_design',
     {
-      description: '승인된 Spec → System Design 생성 (evidence-gated).',
+      description: 'Spec → System Design 생성 (approval 게이트 없음, 생성 즉시 승인됨).',
       inputSchema: z.object({
         spec_id: z.string(),
       }),
@@ -70,7 +71,8 @@ export function registerSddTools(server: McpServer, approval: ApprovalGate): voi
         design_id: state.design?.id,
         status: state.design?.status,
         system_design_path: state.design?.systemDesignPath,
-        next: 'Review system_design.md, collect evidence, then use sdd_approve',
+        approved_revision: state.design?.approvedRevision,
+        next: 'Design auto-approved. Call sdd_tasks to generate tasks.',
         error: state.error,
       })
     }
@@ -80,7 +82,8 @@ export function registerSddTools(server: McpServer, approval: ApprovalGate): voi
     server,
     'sdd_tasks',
     {
-      description: '승인된 Design → Tasks.md 생성 (readiness 95+ 필요).',
+      description:
+        '승인된 Design → Tasks.md 생성. Design이 생성/수정된 후 일관성만 확인하고 Tasks를 생성합니다.',
       inputSchema: z.object({
         design_id: z.string(),
       }),
@@ -89,103 +92,10 @@ export function registerSddTools(server: McpServer, approval: ApprovalGate): voi
       const state = await pipeline.generateTasks(args.design_id)
       return jsonResult({
         stage: state.currentStage,
+        spec_id: state.spec?.id,
         design_id: state.design?.id,
         tasks_path: state.tasks?.tasksPath,
         execution_readiness: state.tasks?.executionReadiness,
-        error: state.error,
-      })
-    }
-  )
-
-  registerMcpTool(
-    server,
-    'sdd_approve',
-    {
-      description: 'SDD approval (spec 단계). sdd_approve_spec 또는 sdd_approve_design 사용.',
-      inputSchema: z.object({
-        id: z.string(),
-        type: z.enum(['spec', 'design']),
-        confirm_code: z.string().optional(),
-      }),
-    },
-    async (args) => {
-      if (args.type === 'spec') {
-        const state = await pipeline.approveSpec(args.id, 'human', {
-          confirmCode: args.confirm_code,
-        })
-        return jsonResult({
-          type: 'spec',
-          spec_id: state.spec?.id,
-          status: state.spec?.status,
-          error: state.error,
-          hint:
-            state.error && state.error.includes('confirm_code')
-              ? 'Pass confirm_code (from MCP server stderr [aio:approval]) or set AIO_ALLOW_MCP_APPROVAL_RESOLVE=1.'
-              : undefined,
-        })
-      }
-      // type === 'design': route to approveDesign so callers can approve a
-      // design with this tool too. Without evidence the self-review/readiness
-      // gates will refuse the approval with a descriptive error — callers who
-      // want richer evidence should still prefer `sdd_approve_design`.
-      const state = await pipeline.approveDesign(args.id, [], undefined, 'human', {
-        confirmCode: args.confirm_code,
-      })
-      return jsonResult({
-        type: 'design' as const,
-        design_id: state.design?.id,
-        status: state.design?.status,
-        error: state.error,
-        hint: state.error
-          ? 'Design was not approved. For evidence-backed approval, use sdd_approve_design with the evidence array. If the error mentions confirm_code, pass it from MCP server stderr or set AIO_ALLOW_MCP_APPROVAL_RESOLVE=1.'
-          : undefined,
-      })
-    }
-  )
-
-  registerMcpTool(
-    server,
-    'sdd_approve_design',
-    {
-      description: 'SDD design 승인. evidence 배열과 함께 호출.',
-      inputSchema: z.object({
-        design_id: z.string(),
-        evidence: z
-          .array(
-            z.object({
-              id: z.string(),
-              proof: z.enum(['confirmed-path', 'partial-path', 'candidate']),
-              source_file: z.string(),
-              commit: z.string(),
-              symbol: z.string(),
-              line_range: z.array(z.number()).length(2).optional(),
-              finding: z.string(),
-            })
-          )
-          .optional(),
-        confirm_code: z.string().optional(),
-      }),
-    },
-    async (args) => {
-      const evidence = (args.evidence || []).map((e) => ({
-        id: e.id,
-        proof: e.proof,
-        sourceFile: e.source_file,
-        commit: e.commit,
-        symbol: e.symbol,
-        lineRange:
-          e.line_range?.length === 2
-            ? ([e.line_range[0], e.line_range[1]] as [number, number])
-            : ([0, 0] as [number, number]),
-        finding: e.finding,
-      }))
-      const state = await pipeline.approveDesign(args.design_id, evidence, undefined, 'human', {
-        confirmCode: args.confirm_code,
-      })
-      return jsonResult({
-        design_id: state.design?.id,
-        status: state.design?.status,
-        approved_revision: state.design?.approvedRevision,
         error: state.error,
       })
     }

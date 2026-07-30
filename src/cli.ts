@@ -57,11 +57,6 @@ interface SddSpecOptions extends OptionValues {
   requirement?: string[]
 }
 
-interface SddApproveOptions extends OptionValues {
-  id: string
-  type?: string
-}
-
 interface SddDesignOptions extends OptionValues {
   specId: string
 }
@@ -111,7 +106,6 @@ interface RepoQueryOptions extends OptionValues {
 import { ObsidianVault } from '@/knowledge/vault'
 import { createEmbedder } from '@/knowledge/embedder'
 import { SemanticSearch } from '@/knowledge/search'
-import { ApprovalGate } from '@/orchestrator/approval'
 import { resolveIndexDir, resolveProjectRoot, resolveVaultRoot } from '@/knowledge/paths'
 import { lintWiki } from '@/knowledge/wiki-ops'
 import { MCPServer } from '@/mcp/server'
@@ -1128,10 +1122,8 @@ sddCmd
   .description('Show SDD pipeline status')
   .action(async () => {
     const projectRoot = resolveProjectRoot()
-    const approval = new ApprovalGate(projectRoot)
-    await approval.load()
     const { SddPipeline } = await import('@/sdd/pipeline')
-    const pipeline = new SddPipeline(projectRoot, approval)
+    const pipeline = new SddPipeline(projectRoot)
     const states = await pipeline.getState()
 
     console.log(chalk.bold.cyan('\n📋 SDD Pipeline Status\n'))
@@ -1160,8 +1152,6 @@ sddCmd
   .action(async (opts) => {
     const o = opts as SddSpecOptions
     const projectRoot = resolveProjectRoot()
-    const approval = new ApprovalGate(projectRoot)
-    await approval.load()
     const { SddPipeline } = await import('@/sdd/pipeline')
 
     const requirements = (o.requirement || []).map((r: string) => {
@@ -1169,7 +1159,7 @@ sddCmd
       return { id, priority: priority as 'P0' | 'P1' | 'P2', description: descParts.join(':') }
     })
 
-    const pipeline = new SddPipeline(projectRoot, approval)
+    const pipeline = new SddPipeline(projectRoot)
     const state = await pipeline.createSpec({
       project: o.project || 'default',
       title: o.title || 'New Feature',
@@ -1182,65 +1172,37 @@ sddCmd
     console.log(`  Status: ${state.spec?.status}`)
     console.log(`  PRD:    ${state.spec?.prdPath}`)
     console.log(`  Stories: ${state.spec?.storiesPath}`)
-    console.log(chalk.green('\n✓ Use "aio sdd approve" to approve, then "aio sdd design"\n'))
-  })
-
-sddCmd
-  .command('approve')
-  .description('Approve SDD spec or design')
-  .option('--id <id>', 'Spec/Design ID')
-  .option('--type <type>', 'spec|design', 'spec')
-  .action(async (opts) => {
-    const o = opts as SddApproveOptions
-    const projectRoot = resolveProjectRoot()
-    const approval = new ApprovalGate(projectRoot)
-    await approval.load()
-    const { SddPipeline } = await import('@/sdd/pipeline')
-
-    const pipeline = new SddPipeline(projectRoot, approval)
-    if (o.type === 'spec') {
-      const state = await pipeline.approveSpec(o.id || '')
-      console.log(chalk.green(`\n✓ Spec ${o.id} approved: ${state.spec?.status}`))
-    } else {
-      const state = await pipeline.approveDesign(o.id || '', [], undefined)
-      console.log(chalk.green(`\n✓ Design ${o.id} approved: ${state.design?.status}`))
-    }
+    console.log(chalk.green('\n✓ Spec auto-approved. Use "aio sdd design --spec-id <id>"\n'))
   })
 
 sddCmd
   .command('design')
-  .description('Create system design from approved spec')
+  .description('Create system design from spec (auto-approved)')
   .option('--spec-id <id>', 'Spec ID')
   .action(async (opts) => {
     const o = opts as SddDesignOptions
     const projectRoot = resolveProjectRoot()
-    const approval = new ApprovalGate(projectRoot)
-    await approval.load()
     const { SddPipeline } = await import('@/sdd/pipeline')
 
-    const pipeline = new SddPipeline(projectRoot, approval)
+    const pipeline = new SddPipeline(projectRoot)
     const state = await pipeline.createDesign(o.specId || '')
 
     console.log(chalk.bold.cyan('\n🎨 System Design Created\n'))
     console.log(`  Design ID: ${state.design?.id}`)
     console.log(`  Path:      ${state.design?.systemDesignPath}`)
-    console.log(
-      chalk.green('\n✓ Review system_design.md, then "aio sdd approve --type design --id <id>"\n')
-    )
+    console.log(chalk.green('\n✓ Design auto-approved. Use "aio sdd tasks --design-id <id>"\n'))
   })
 
 sddCmd
   .command('tasks')
-  .description('Generate tasks from approved design')
+  .description('Generate tasks from design (auto-approved)')
   .option('--design-id <id>', 'Design ID')
   .action(async (opts) => {
     const o = opts as SddTasksOptions
     const projectRoot = resolveProjectRoot()
-    const approval = new ApprovalGate(projectRoot)
-    await approval.load()
     const { SddPipeline } = await import('@/sdd/pipeline')
 
-    const pipeline = new SddPipeline(projectRoot, approval)
+    const pipeline = new SddPipeline(projectRoot)
     const state = await pipeline.generateTasks(o.designId || '')
 
     console.log(chalk.bold.cyan('\n📋 Tasks Generated\n'))

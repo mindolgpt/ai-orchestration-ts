@@ -130,7 +130,7 @@ export class MCPServer {
       approval: this.approval,
     })
     registerAnalysisTools(this.server, this.vault, this.search)
-    registerSddTools(this.server, this.approval)
+    registerSddTools(this.server)
     registerImpactTools(this.server)
     registerMemoryTools(this.server)
     registerRepoTools(this.server)

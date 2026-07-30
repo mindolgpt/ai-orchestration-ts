@@ -12,8 +12,6 @@ import { scaffoldApps } from '@/harness/scaffold/scaffold-app'
 import { writeCursorSkills } from '@/harness/skills'
 import { scanProject } from '@/harness/project-scan'
 import { SddPipeline } from '@/sdd/pipeline'
-import { ApprovalGate } from '@/orchestrator/approval'
-import { writeAcceptanceJson } from '@/sdd/from-wiki'
 import { runImplementLoop } from '@/harness/implement-loop'
 import { getEventLog } from '@/observability/events'
 import { designArchitecture } from '@/harness/architecture'
@@ -225,9 +223,7 @@ export async function bootstrapProduct(
 
   // --- sdd ---
   if (phases.includes('sdd') && state.phase_status.sdd !== 'done') {
-    const approval = new ApprovalGate(root)
-    await approval.load()
-    const pipeline = new SddPipeline(root, approval, { vault, search: getSearch() })
+    const pipeline = new SddPipeline(root, { vault, search: getSearch() })
     const finalReqs = (opts.requirements || []).map((r) => ({
       id: r.id,
       priority: r.priority,
@@ -243,6 +239,7 @@ export async function bootstrapProduct(
       })
     }
 
+    // createSpec auto-approves + writes acceptance.json internally.
     const created = await pipeline.createSpec({
       project: state.domain,
       title: `${state.domain} product`,
@@ -250,77 +247,34 @@ export async function bootstrapProduct(
       requirements: finalReqs,
     })
     state.sdd = { ...state.sdd, spec_id: created.spec?.id }
-    if (created.spec?.id) {
-      await writeAcceptanceJson(root, created.spec.id, finalReqs)
-    }
+    // writeAcceptanceJson is now called inside createSpec — no duplicate needed.
 
-    if (opts.auto_approve_spec && created.spec) {
-      created.spec.status = 'approved'
-      created.spec.approvedAt = Date.now()
-      created.spec.approvedBy = 'auto'
-      const store = (pipeline as unknown as { specStore: { save: (s: unknown) => Promise<void> } })
-        .specStore
-      await store.save(created.spec)
+    if (created.spec && created.spec.status === 'approved') {
+      // Design is auto-approved on creation.
       const design = await pipeline.createDesign(created.spec.id)
       state.sdd = { ...state.sdd, design_id: design.design?.id }
-      // Auto-approve the design and generate tasks.md so the implement phase
-      // runs against real SDD tasks instead of a generic fallback slice.
+      // generate tasks.md immediately (no separate approval step).
       if (design.design?.id) {
-        const tasksState = await pipeline.autoApproveDesignAndGenerateTasks(design.design.id)
+        const tasksState = await pipeline.generateTasks(design.design.id)
         if (tasksState.tasks?.tasksPath) {
           state.files_written?.push(tasksState.tasks.tasksPath)
         }
       }
       state.phase_status.sdd = 'done'
     } else {
+      // Should not happen — createSpec always returns status='approved'.
       state.phase_status.sdd = 'blocked'
-      state.blocked_reason = 'awaiting_sdd_approval'
+      state.blocked_reason = 'spec_creation_failed'
       await saveCheckpoint(root, state)
       return summarize(state, root, opts.format, {
         status: 'blocked',
-        next_steps: [
-          `aio approval list`,
-          `aio sdd approve --id ${created.spec?.id} --type spec  (or resolve_approval)`,
-          `Then: bootstrap_product({ resume: true })`,
-          `sdd_status() to verify`,
-        ],
+        next_steps: ['Check spec creation error and retry'],
       })
     }
     await saveCheckpoint(root, state)
   }
 
-  // Unblock sdd if previously blocked but now approved externally
-  if (state.phase_status.sdd === 'blocked' && state.sdd?.spec_id) {
-    const approval = new ApprovalGate(root)
-    const pipeline = new SddPipeline(root, approval, { vault, search: getSearch() })
-    const st = await pipeline.getState()
-    const match = st.find((s) => s.spec?.id === state.sdd?.spec_id)
-    if (match?.spec?.status === 'approved') {
-      if (!state.sdd.design_id) {
-        const design = await pipeline.createDesign(match.spec.id)
-        state.sdd.design_id = design.design?.id
-        // Externally-approved spec → also produce approved design + tasks.md.
-        if (design.design?.id) {
-          const tasksState = await pipeline.autoApproveDesignAndGenerateTasks(design.design.id)
-          if (tasksState.tasks?.tasksPath) {
-            state.files_written?.push(tasksState.tasks.tasksPath)
-          }
-        }
-      }
-      state.phase_status.sdd = 'done'
-      state.blocked_reason = undefined
-      await saveCheckpoint(root, state)
-    } else if (phases.includes('sdd')) {
-      return summarize(state, root, opts.format, {
-        status: 'blocked',
-        next_steps: [
-          `Approve spec ${state.sdd.spec_id}`,
-          `aio approval resolve / sdd_approve`,
-          `bootstrap_product({ resume: true })`,
-        ],
-      })
-    }
-  }
+  // (unblock path removed — SDD no longer has blocking approval gates)
 
   // --- interview (includes project scan) ---
   if (phases.includes('interview') && state.phase_status.interview !== 'done') {

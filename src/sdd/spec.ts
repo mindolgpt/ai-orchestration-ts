@@ -49,7 +49,9 @@ export class FileSpecStore implements SpecStore {
 
   async save(spec: SddSpec): Promise<void> {
     await fs.mkdir(this.dir, { recursive: true })
-    await fs.writeFile(this.filePath(spec.id), JSON.stringify(spec, null, 2), 'utf-8')
+    const tmp = `${this.filePath(spec.id)}.tmp-${process.pid}-${Date.now()}`
+    await fs.writeFile(tmp, JSON.stringify(spec, null, 2), 'utf-8')
+    await fs.rename(tmp, this.filePath(spec.id))
   }
 
   async delete(id: string): Promise<void> {

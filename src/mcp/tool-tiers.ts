@@ -21,7 +21,10 @@ const CORE_TOOLS = new Set([
   'scaffold_apps',
   'run_implement_loop',
   'sdd_spec',
+  'sdd_design',
+  'sdd_tasks',
   'sdd_status',
+  'report_acceptance',
   'design_architecture',
   'analyze_codebase',
   'recall_knowledge',
@@ -41,7 +44,6 @@ const WIKI_EXTRA = new Set([
   'reject_wiki_proposal',
   'wiki_diff',
   'store_knowledge',
-  'recall_knowledge',
   'scan_raw_inbox',
   'list_vaults',
 ])

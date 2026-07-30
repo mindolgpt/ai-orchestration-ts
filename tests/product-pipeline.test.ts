@@ -19,7 +19,7 @@ describe('product-pipeline', () => {
     await fs.rm(tmp, { recursive: true, force: true })
   })
 
-  test('blocks on sdd approval by default', async () => {
+  test('sdd auto-approves and completes immediately', async () => {
     const r = await bootstrapProduct({
       projectRoot: tmp,
       domain: 'shop',
@@ -29,8 +29,14 @@ describe('product-pipeline', () => {
       reset: true,
       format: 'summary',
     })
-    expect(r.status).toBe('blocked')
-    expect(r.blocked_reason).toBe('awaiting_sdd_approval')
+    // SDD no longer requires approval — auto-approves on creation.
+    expect(['complete', 'partial']).toContain(r.status as string)
+    const st = JSON.parse(
+      await fs.readFile(path.join(tmp, '.aio', 'product-pipeline.json'), 'utf-8')
+    )
+    expect(st.phase_status.sdd).toBe('done')
+    expect(st.sdd.spec_id).toBeTruthy()
+    expect(st.sdd.design_id).toBeTruthy()
     await fs.access(path.join(tmp, '.aio', 'product-pipeline.json'))
   }, 60_000)
 
